@@ -5,6 +5,7 @@
 # ships the scripts over, bootstraps them into /usr/local, and runs commands.
 #
 #   scripts/remote.sh connect root@203.0.113.5           # verify ssh + sudo before doing anything
+#   scripts/remote.sh reach root@203.0.113.5             # is the IP blocked from here?
 #   scripts/remote.sh deploy root@203.0.113.5            # everything, one command
 #   scripts/remote.sh test   root@203.0.113.5            # full lifecycle acceptance run
 #   scripts/remote.sh push   root@203.0.113.5
@@ -18,6 +19,7 @@
 #   -o OPTION      extra ssh option, repeatable (e.g. -o StrictHostKeyChecking=no)
 #   --sudo         run privileged commands through sudo -n (non-root login)
 #   --remote-dir D bundle location on the server (default ~/.vpnctl)
+#   --vpn-port N   VPN 服务端口，供 reach 使用（默认 443）
 #   -b, --backend  backend for deploy (default auto)
 #   -c, --client   client name for deploy (default default)
 #   --domain D     domain for the trojan node when deploying --backend all
@@ -35,6 +37,7 @@ DEPLOY_BACKEND="auto"
 DEPLOY_CLIENT="default"
 DEPLOY_DOMAIN=""
 DEPLOY_CN=0
+VPN_PORT=443
 
 SCRIPT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_DIR="$(dirname "$SCRIPT_DIR")"
@@ -59,6 +62,7 @@ while [ "$#" -gt 0 ]; do
     -c|--client) DEPLOY_CLIENT="${2:?--client needs a value}"; shift 2 ;;
     --domain) DEPLOY_DOMAIN="${2:?--domain needs a value}"; shift 2 ;;
     --cn) DEPLOY_CN=1; shift ;;
+    --vpn-port) VPN_PORT="${2:?}"; shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help) usage ;;
     --) shift; break ;;
@@ -192,6 +196,15 @@ REMOTE
   log "next: probe (read-only), then plan, then ask the user for authorization"
 }
 
+
+# Is the IP reachable from THIS machine? Answers "is it blocked" without SSH.
+cmd_reach() {
+  local host="${TARGET##*@}"
+  local script; script="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-ip.sh"
+  [ -r "$script" ] || die "cannot find check-ip.sh next to remote.sh"
+  bash "$script" "$host" --port "$VPN_PORT" --ssh-port "$SSH_PORT" "$@"
+}
+
 cmd_pull() {
   local dest="${1:-./vpn-clients}"
   case $dest in
@@ -208,6 +221,7 @@ cmd_pull() {
 
 case $ACTION in
   connect) cmd_connect ;;
+  reach)   cmd_reach ;;
   deploy) cmd_deploy "$@" ;;
   test)   cmd_test ;;
   push)  cmd_push ;;

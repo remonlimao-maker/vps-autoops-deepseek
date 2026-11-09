@@ -302,6 +302,35 @@ URL 本身就是密码（bearer credential）：token 32 位随机、端口随�
 
 订阅是完整 Clash 配置（含 `dns` 防泄漏块与目标站点规则），不是只列节点。订阅是凭据**：`clash.yaml` / `v2ray.txt` 里是可直接连的节点，等同于密码。不要贴群、不要提交 Git；要给别人用就单发文件。
 
+## IP 是否被封（先测，再决定）
+
+在**用户自己的设备上**测，不是服务器上——被封的是「用户 → 服务器」这一段：
+
+```bash
+bash scripts/check-ip.sh <IP> --port 443
+# 或经 remote.sh：bash scripts/remote.sh reach root@<IP>
+```
+
+四种结论，动作完全不同：
+
+| verdict | 含义 | 必须对用户说什么 |
+|---|---|---|
+| `ok` | 端口可达 | 正常，不用动 |
+| **`blocked`** | 服务端口和 SSH 都不通，但控制目标可达 | **「这个 IP 被封了，需要销毁服务器、重新建一台」**，并给出 rebuild 命令 |
+| `service` | IP 通（SSH 能连），只是服务挂了 | 修服务，**绝对不要**建议重建 |
+| `local` | 连控制目标都不通 | 先查用户自己的网络 |
+
+`blocked` 时的动作：
+
+```bash
+cd ../vps-provision
+./scripts/vpsctl rotate <name> --yes --client phone   # 同套餐重建 + 重新部署
+```
+
+**禁止**：`blocked` 时建议"换个端口试试""换成 WireGuard"——IP 级封锁下这些都无效，只会浪费用户时间。
+
+**必须**：明确告诉用户为什么是 IP 的问题（端口和 SSH 同时不通），以及重建后订阅链接会变。
+
 ## 排障入口
 
 先 `vpnctl verify <be> --json`、`vpnctl probe --json`、`vpnctl check-sites`，再查 `references/troubleshooting.md`。常见：UDP 被云厂商安全组挡住（WireGuard/Hysteria2 连不上但服务正常）、TCP/443 被 nginx 占用、容器内无 TUN、时间不同步导致 REALITY 握手失败。

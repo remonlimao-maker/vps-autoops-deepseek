@@ -82,6 +82,7 @@ Key 在 https://my.vultr.com/settings/#settingsapi 生成，权限选 **Read & W
 
 ```bash
 vpsctl go --purpose chatgpt            # 一句话：建机 + 配置 + 出订阅
+vpsctl rotate <name> --yes             # IP 被封时：销毁 + 同套餐重建 + 重新部署
 vpsctl go --dry-run --purpose budget   # 只解析并打印将要做的事
 
 vpsctl regions / plans / os / keys     # 只读查询
@@ -105,6 +106,18 @@ vpsctl reboot jp1 / snapshot jp1 --desc before-upgrade / destroy jp1
 
 模板套用流程：`scp 模板 → 服务器上 vpnctl sub --template → 拉回 clash.yaml`。
 模板里只有节点定义和分组成员会被替换，规则集与规则原样保留。
+
+## IP 被封了怎么办
+
+先用本机侧的探测确认（不要从服务器上测）：
+
+```bash
+bash ../vps-vpn-setup/scripts/remote.sh reach root@<IP>
+```
+
+- `verdict: blocked` → `vpsctl rotate <name> --yes`（销毁重建，IP 会变，订阅链接要重新发）
+- `verdict: service` → IP 没被封，修服务即可，**不要销毁**
+- `verdict: local` → 用户自己的网络问题
 
 ## IP 是固定的吗
 

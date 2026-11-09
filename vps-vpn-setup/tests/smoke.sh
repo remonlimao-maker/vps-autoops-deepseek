@@ -692,6 +692,32 @@ probe_keys="$(PATH="$TMP/fakebin:$PATH" VPNCTL_STATE_DIR="$TMP/probe2" bash "$SC
 assert_contains "$probe_keys" '"foreign"' "probe reports services vpnctl does not manage"
 
 # ---------------------------------------------------------------------------
+group "20. IP blocked vs service down"
+LPORT=$(( 18000 + ($$ % 500) ))
+python3 -m http.server "$LPORT" --bind 127.0.0.1 >/dev/null 2>&1 &
+SRV=$!
+sleep 1
+CHK="$SCRIPTS/check-ip.sh"
+
+ok_out="$(bash "$CHK" 127.0.0.1 --port "$LPORT" --ssh-port "$LPORT" --control "127.0.0.1:$LPORT" --json 2>/dev/null)"
+assert_contains "$ok_out" '"verdict":"ok"' "open service port reports ok"
+
+blocked_out="$(bash "$CHK" 127.0.0.1 --port 1 --ssh-port 2 --control "127.0.0.1:$LPORT" --json 2>/dev/null)"; blocked_rc=$?
+assert_eq "10" "$blocked_rc" "both ports closed + control up exits 10"
+assert_contains "$blocked_out" '"verdict":"blocked"' "and calls it a blocked IP"
+
+svc_out="$(bash "$CHK" 127.0.0.1 --port 1 --ssh-port "$LPORT" --control "127.0.0.1:$LPORT" --json 2>/dev/null)"; svc_rc=$?
+assert_eq "11" "$svc_rc" "ssh reachable but service closed exits 11"
+assert_contains "$svc_out" '"verdict":"service"' "and refuses to call the IP blocked"
+
+local_out="$(bash "$CHK" 127.0.0.1 --port 1 --ssh-port 2 --control 127.0.0.1:1 --json 2>/dev/null)"; local_rc=$?
+assert_eq "12" "$local_rc" "dead control target exits 12"
+assert_contains "$local_out" '"verdict":"local"' "and blames the local network"
+
+kill "$SRV" 2>/dev/null
+wait "$SRV" 2>/dev/null
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s   skipped %s\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

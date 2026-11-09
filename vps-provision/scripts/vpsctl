@@ -50,6 +50,7 @@ READ-ONLY
   ssh NAME [cmd...]         Open a shell, or run one command
 
 MUTATING
+  rotate NAME               Destroy + rebuild with the same plan (use after an IP block)
   go     [--purpose chatgpt] [--template auto]
                             ONE command: resolve region/plan/image, create, configure,
                             apply your profile, pull client files
@@ -804,6 +805,53 @@ cmd_adopt() {
   log_info "next: vpsctl ssh $rlabel   or   vpsctl show $rlabel"
 }
 
+# ---------------------------------------------------------------------------
+# rotate: the answer to "this IP is blocked". Destroy and rebuild the same
+# instance with the same plan, then re-run the full deployment.
+# ---------------------------------------------------------------------------
+ROTATE_CLIENT="phone"
+
+cmd_rotate() {
+  [ "$#" -gt 0 ] || die "rotate requires the instance name (see: vpsctl list)"
+  local label="$1"; shift || true
+  local template="auto"
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --client) ROTATE_CLIENT="${2:-}"; shift 2 ;;
+      --template) template="${2:-}"; shift 2 ;;
+      *) die "rotate: unexpected argument '$1'" ;;
+    esac
+  done
+
+  instance_exists "$label" || die "no instance named '$label' (vpsctl list)"
+  local region plan os_id key old_ip
+  region="$(instance_get "$label" REGION)"
+  plan="$(instance_get "$label" PLAN)"
+  os_id="$(instance_get "$label" OS_ID)"
+  key="$(instance_get "$label" SSH_KEY_FILE)"
+  old_ip="$(instance_get "$label" IP)"
+  load_provider
+
+  log_warn "rotate destroys '$label' ($old_ip) and rebuilds it with the same plan."
+  log_warn "the IP changes, so the subscription link has to be handed out again."
+  confirm "Destroy and rebuild '$label'?"
+
+  vultr_delete "$(instance_get "$label" ID)" || die "provider refused the delete; nothing else was touched"
+  instance_forget "$label"
+  log_ok "destroyed $label"
+
+  GO_PURPOSE="chatgpt"
+  GO_TEMPLATE="$template"
+  GO_CLIENT="$ROTATE_CLIENT"
+  GO_NAME="$label"
+  GO_REGION="$region"
+  GO_PLAN="$plan"
+  GO_OS="$os_id"
+  GO_CN=1
+  ASSUME_YES=1
+  cmd_go
+}
+
 # --- doctor ----------------------------------------------------------------
 cmd_doctor() {
   local fail=0
@@ -843,6 +891,7 @@ case $CMD in
   create)    cmd_create "$@" ;;
   up)        cmd_up "$@" ;;
   go)        cmd_go "$@" ;;
+  rotate)    cmd_rotate "$@" ;;
   reboot)    cmd_reboot "$@" ;;
   snapshot)  cmd_snapshot "$@" ;;
   destroy)   cmd_destroy "$@" ;;

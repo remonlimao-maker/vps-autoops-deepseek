@@ -35,7 +35,7 @@
 
 ```bash
 bash vps-provision/tests/smoke.sh      # 52 项断言（假 API，不花钱）
-bash vps-vpn-setup/tests/smoke.sh      # 203 项断言
+bash vps-vpn-setup/tests/smoke.sh      # 210 项断言
 bash vps-vpn-setup/scripts/vpnctl doctor
 bash -n vps-provision/scripts/vpsctl vps-vpn-setup/scripts/vpnctl
 ```

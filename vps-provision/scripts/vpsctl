@@ -52,6 +52,8 @@ READ-ONLY
 MUTATING
   rotate NAME               Destroy + rebuild with the same plan (use after an IP block)
   cost                      See what the running instances cost per month
+  passwd NAME [--allow-password-login]
+                            Set a root password (needed for the provider web console)
   go     [--purpose chatgpt] [--template auto]
                             ONE command: resolve region/plan/image, create, configure,
                             apply your profile, pull client files
@@ -854,6 +856,78 @@ cmd_rotate() {
 }
 
 # ---------------------------------------------------------------------------
+# passwd: 给实例设置 root 密码（云厂商网页控制台登录需要）
+#
+# 用 SSH 密钥创建的机器通常没有可用密码，新手想进网页控制台就会卡住。
+# 密码写在本机 vpn-clients/<name>/root-password.txt（600），不打印到终端。
+# ---------------------------------------------------------------------------
+cmd_passwd() {
+  local name="" allow=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --allow-password-login) allow=1; shift ;;
+      -h|--help)
+        cat <<'EOF'
+passwd <name> [--allow-password-login]
+  给实例的 root 设置随机密码，保存到 vpn-clients/<name>/root-password.txt
+  --allow-password-login  同时允许 SSH 密码登录（默认仅密钥，更安全）
+EOF
+        return 0 ;;
+      -*) die "passwd: unknown option '$1'" ;;
+      *) name="$1"; shift ;;
+    esac
+  done
+  [ -n "$name" ] || die "passwd requires the instance name (vpsctl list)"
+  instance_exists "$name" || die "no instance named '$name'"
+
+  local ip key pw
+  ip="$(instance_get "$name" IP)"
+  key="$(instance_get "$name" SSH_KEY_FILE)"
+  [ -n "$ip" ] || die "instance '$name' has no IP yet"
+  pw="$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  pw="${pw:0:24}"
+
+  local rc=0
+  ssh -i "${key%.pub}" -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+    "root@$ip" "echo 'root:$pw' | chpasswd" || rc=$?
+  [ "$rc" = "0" ] || die "设置密码失败（SSH 不通或没有权限）"
+
+  if [ "$allow" = "1" ]; then
+    ssh -i "${key%.pub}" -o ConnectTimeout=15 -o BatchMode=yes "root@$ip" '
+      conf=/etc/ssh/sshd_config
+      cp -a "$conf" "$conf.bak.$(date +%s)"
+      if grep -qiE "^\s*PasswordAuthentication" "$conf"; then
+        sed -i "s/^\s*PasswordAuthentication.*/PasswordAuthentication yes/I" "$conf"
+      else
+        printf "\nPasswordAuthentication yes\n" >> "$conf"
+      fi
+      sshd -t && (systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true)
+    ' || log_warn "已设密码，但打开 SSH 密码登录失败"
+  fi
+
+  local dir="$PWD/vpn-clients/$name"
+  mkdir -p "$dir"
+  umask 077
+  printf '%s\n' "$pw" > "$dir/root-password.txt"
+  chmod 600 "$dir/root-password.txt"
+
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"instance":%s,"ip":%s,"password_file":%s,"password_login":%s}\n' \
+      "$(json_str "$name")" "$(json_str "$ip")" "$(json_str "$dir/root-password.txt")" \
+      "$([ "$allow" = "1" ] && echo true || echo false)"
+    return 0
+  fi
+  log_ok "root 密码已设置：$name ($ip)"
+  log_info "保存在 $dir/root-password.txt（600），查看：cat $dir/root-password.txt"
+  if [ "$allow" = "1" ]; then
+    log_warn "已允许 SSH 密码登录，暴露面变大，建议配合 fail2ban 或改回仅密钥"
+  else
+    log_info "SSH 仍只认密钥；用密码登录请加 --allow-password-login"
+  fi
+  log_info "云控制台（Vultr 的 View Console）现在可以用 root + 这个密码登录"
+}
+
+# ---------------------------------------------------------------------------
 # cost: 账号里所有实例每月在花多少钱（不只本地记录的，避免"孤儿"实例）
 # ---------------------------------------------------------------------------
 cmd_cost() {
@@ -935,6 +1009,7 @@ case $CMD in
   up)        cmd_up "$@" ;;
   go)        cmd_go "$@" ;;
   cost)      cmd_cost "$@" ;;
+  passwd)    cmd_passwd "$@" ;;
   rotate)    cmd_rotate "$@" ;;
   reboot)    cmd_reboot "$@" ;;
   snapshot)  cmd_snapshot "$@" ;;

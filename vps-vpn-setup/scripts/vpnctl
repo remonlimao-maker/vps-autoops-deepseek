@@ -69,6 +69,8 @@ PROVISIONING
                             Revoke a client
   harden                    SSH auth hardening + open VPN ports in the firewall
   import hysteria2 [NAME]   Register a hand-installed Hysteria2 so `sub` can include it
+  passwd [--user root] [--generate] [--allow-password-login]
+                            Set a password (needed for provider web console)
   backup                    Snapshot /etc/vpnctl and backend configs
   uninstall <backend> [--purge]
 
@@ -1567,6 +1569,104 @@ EOF
   fi
 }
 
+
+# ---------------------------------------------------------------------------
+# passwd：给 root（或指定用户）设置密码
+#
+# 为什么需要：用 SSH 密钥创建的机器，root 通常没有可用密码，
+# 于是用户没法在云厂商的网页控制台登录。这里补上，且默认**不**打开
+# SSH 密码登录（密钥优先），需要时才用 --allow-password-login。
+# ---------------------------------------------------------------------------
+cmd_passwd() {
+  local user="root" generate=0 from_stdin=0 allow_login=0 show=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --user|-u) user="${2:-root}"; shift 2 ;;
+      --generate) generate=1; shift ;;
+      --stdin) from_stdin=1; shift ;;
+      --allow-password-login) allow_login=1; shift ;;
+      --show) show=1; shift ;;
+      --dry-run) DRY_RUN=1; shift ;;
+      -h|--help)
+        cat <<'EOF'
+passwd options:
+  --user, -u NAME           目标用户（默认 root）
+  --generate                生成 24 位随机密码
+  --stdin                   从标准输入读取（echo 'pw' | vpnctl passwd --stdin）
+  --allow-password-login    同时允许 SSH 密码登录（默认仅密钥）
+  --show                    直接打印密码（默认只写文件并给路径）
+  --dry-run                 只生成并显示会怎么做，不改系统
+EOF
+        return 0 ;;
+      *) die "passwd: unknown option '$1'" ;;
+    esac
+  done
+
+  if [ "${DRY_RUN:-0}" != "1" ]; then
+    require_root
+    need_cmd chpasswd
+  fi
+
+  local pw=""
+  if [ "$generate" = "1" ]; then
+    # 不用 `tr | head`：head 提前退出会让 tr 收到 SIGPIPE，配合 pipefail 直接 141
+    pw="$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    pw="${pw:0:24}"
+  elif [ "$from_stdin" = "1" ]; then
+    read -r pw || true
+  else
+    [ -t 0 ] || die "非交互环境：用 --generate 或 --stdin"
+    printf 'New password for %s: ' "$user" >&2
+    read -rs pw; printf '\n' >&2
+    local again
+    printf 'Repeat: ' >&2
+    read -rs again; printf '\n' >&2
+    [ "$pw" = "$again" ] || die "两次输入不一致"
+  fi
+  [ "${#pw}" -ge 8 ] || die "密码至少 8 位"
+
+  local outdir="/root/.vpnctl/passwords"
+  local file="$outdir/$user.txt"
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    printf '{"user":"%s","length":%s,"would_write":"%s","password_login":%s}\n' \
+      "$user" "${#pw}" "$file" "$([ "$allow_login" = "1" ] && echo true || echo false)"
+    [ "$show" = "1" ] && printf 'password: %s\n' "$pw" >&2
+    return 0
+  fi
+
+  printf '%s:%s\n' "$user" "$pw" | chpasswd || die "设置密码失败"
+
+  mkdir -p "$outdir"; chmod 700 "$outdir"
+  umask 077
+  printf '%s\n' "$pw" > "$file"
+  chmod 600 "$file"
+
+  if [ "$allow_login" = "1" ]; then
+    local conf=/etc/ssh/sshd_config
+    [ -f "$conf" ] || die "找不到 $conf"
+    cp -a "$conf" "$conf.bak.$(date +%s)"
+    if grep -qiE '^\s*PasswordAuthentication' "$conf"; then
+      sed -i.bak 's/^\s*PasswordAuthentication.*/PasswordAuthentication yes/I' "$conf"
+    else
+      printf '\nPasswordAuthentication yes\n' >> "$conf"
+    fi
+    if command -v sshd >/dev/null 2>&1; then
+      sshd -t || { mv "$conf.bak."* "$conf" 2>/dev/null; die "sshd 配置校验失败，已回滚"; }
+    fi
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    log_warn "已允许 SSH 密码登录——这会扩大暴露面，建议配合 fail2ban"
+  fi
+
+  log_ok "已设置 $user 的密码"
+  log_info "密码保存在 $file（600），用 cat 查看"
+  [ "$show" = "1" ] && printf 'password: %s\n' "$pw"
+  if [ "$allow_login" = "1" ]; then
+    printf '{"user":"%s","file":"%s","password_login":true}\n' "$user" "$file"
+  else
+    printf '{"user":"%s","file":"%s","password_login":false}\n' "$user" "$file"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
@@ -1581,6 +1681,7 @@ case $CMD in
   sub)       cmd_sub "$@" ;;
   check-sites|sites) . "$LIB_DIR/sites.sh"; cmd_check_sites "$@" ;;
   import)    cmd_import "$@" ;;
+  passwd)    cmd_passwd "$@" ;;
   singbox)   cmd_singbox "$@" ;;
   backup)    cmd_backup ;;
   uninstall) cmd_uninstall "$@" ;;

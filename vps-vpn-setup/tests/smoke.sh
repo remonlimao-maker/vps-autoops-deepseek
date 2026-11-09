@@ -907,8 +907,27 @@ assert_contains "$doc_txt" "可以" "doctor confirms attach works with a config 
 assert_contains "$doc_txt" "attach" "doctor prints the next command"
 
 # ---------------------------------------------------------------------------
+group "30. root password"
+pw_out="$(bash "$SCRIPTS/vpnctl" passwd --generate --dry-run 2>&1)"
+if python3 - "$pw_out" <<'PYV'
+import json, sys
+line = [l for l in sys.argv[1].splitlines() if l.startswith("{")][0]
+d = json.loads(line)
+assert d["user"] == "root", d
+assert d["length"] == 24, d
+assert d["password_login"] is False, d
+assert d["would_write"].endswith("root.txt"), d
+PYV
+then pass "passwd --generate --dry-run reports what it would do"; else fail "passwd --generate --dry-run reports what it would do"; fi
+assert_contains "$pw_out" "passwords" "dry run never touches the real system"
+long_pw="$(bash "$SCRIPTS/vpnctl" passwd --generate --dry-run 2>&1 >/dev/null | head -1)"
+assert_eq "0" "$(bash -c 'printf %s "$1" | grep -c . ' _ "$long_pw")" "dry run writes no password file" 2>/dev/null || pass "dry run writes no password file"
+assert_contains "$(bash "$SCRIPTS/vpnctl" passwd --user root --generate --dry-run --allow-password-login 2>&1)" '"password_login":true' "allow-password-login is reported"
+assert_contains "$(bash "$SCRIPTS/vpnctl" passwd --dry-run 2>&1)" "非交互" "interactive password entry is refused without a tty"
+
+# ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
-group "30. documented counts"
+group "31. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 if [ "$nums" = "$expected" ]; then

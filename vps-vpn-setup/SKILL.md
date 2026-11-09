@@ -261,6 +261,7 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 | `vpnctl sub --name N [--out DIR] [--template FILE] [--serve]` | 汇成一份订阅；`--template` 套用你的规则，`--serve` 同时给出订阅**链接** |
 | `vpnctl sub --unserve` | 关闭订阅链接服务 |
 | `vpnctl import hysteria2 [NAME]` | 把**手装**的 Hysteria2 纳入管理（不改服务） |
+| `vpnctl passwd [--generate] [--allow-password-login]` | 给 root 设密码（网页控制台登录需要；默认不开 SSH 密码登录） |
 | `vpnctl singbox --name N [--out F] [--global]` | 生成手机端 sing-box 用的完整 JSON（含 TUN 与国内分流） |
 | `vpnctl plan <be>` | 打印将要执行的动作（只读） |
 | `vpnctl install <be> [opts]` | 安装或重配后端（幂等） |
@@ -348,6 +349,22 @@ URL 本身就是密码（bearer credential）：token 32 位随机、端口随�
 
 订阅是完整 Clash 配置（含 `dns` 防泄漏块与目标站点规则），不是只列节点。订阅是凭据**：`clash.yaml` / `v2ray.txt` 里是可直接连的节点，等同于密码。不要贴群、不要提交 Git；要给别人用就单发文件。
 
+## 用户要"能登录服务器"时
+
+用密钥创建的机器，root 通常没有可用密码——用户想用云厂商的**网页控制台**（Vultr 的
+View Console）登录就会卡住。
+
+```bash
+vpnctl passwd --generate                 # 生成 24 位密码，写到 /root/.vpnctl/passwords/root.txt
+vpnctl passwd --generate --show          # 同时打印（只在用户明确要时用）
+vpnctl passwd --stdin                    # 用户自己给：echo 'xxx' | vpnctl passwd --stdin
+```
+
+**默认不打开 SSH 密码登录**（密钥优先）。确实需要再加 `--allow-password-login`，
+并且要提醒用户：这会扩大暴露面，值得配 fail2ban。
+
+密码落到文件（600）而不是聊天记录里——这是本项目的硬规则。
+
 ## IP 是否被封（先测，再决定）
 
 在**用户自己的设备上**测，不是服务器上——被封的是「用户 → 服务器」这一段：
@@ -412,7 +429,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 288 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 293 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

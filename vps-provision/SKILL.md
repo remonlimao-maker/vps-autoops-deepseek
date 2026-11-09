@@ -110,6 +110,18 @@ vpsctl reboot jp1 / snapshot jp1 --desc before-upgrade / destroy jp1
 模板套用流程：`scp 模板 → 服务器上 vpnctl sub --template → 拉回 clash.yaml`。
 模板里只有节点定义和分组成员会被替换，规则集与规则原样保留。
 
+## 用户要能登录控制台
+
+用 SSH 密钥创建的实例，root 没有可用密码，Vultr 的 **View Console** 登不进去。
+交付前问一句"要不要设一个登录密码"，然后：
+
+```bash
+vpsctl passwd <name>                      # 生成随机密码 → vpn-clients/<name>/root-password.txt
+vpsctl passwd <name> --allow-password-login   # 顺便允许 SSH 密码登录（默认不允许）
+```
+
+密码只写文件（600），不打印到终端、不进对话。
+
 ## 费用：交付时必须说清楚
 
 用户是按小时付费的，**机器开着就在花钱**。所以：

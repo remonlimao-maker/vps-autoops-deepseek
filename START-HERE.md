@@ -130,6 +130,9 @@ git clone https://github.com/remonlimao-maker/vps-autoops-deepseek.git
 在那台机器的详情页，右上角点 **View Console**（网页里的黑框终端）。
 用 `root` + 密码登录。
 
+> 如果你是用 SSH 密钥创建的机器，root 可能**没有密码**，控制台登不进去。
+> 这时在终端里跑 `vpnctl passwd --generate`（或 `vpsctl passwd <名字>`）设一个即可。
+
 ### 第 3 步：把命令粘给网页 AI
 
 把下面这段发给 ChatGPT / DeepSeek 网页版：

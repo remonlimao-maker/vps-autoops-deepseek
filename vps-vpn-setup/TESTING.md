@@ -20,7 +20,7 @@
 ```bash
 cd vps-vpn-setup
 
-bash tests/smoke.sh          # 288 项断言，不碰真实系统
+bash tests/smoke.sh          # 293 项断言，不碰真实系统
 bash scripts/vpnctl doctor   # 工具自检
 bash scripts/vpnctl plan wireguard      # 看它打算做什么
 bash scripts/vpnctl plan xray-reality --help

@@ -1,0 +1,349 @@
+---
+name: vps-vpn-setup
+description: Provision, harden and operate a VPN on a Linux VPS over SSH — WireGuard, Xray VLESS+REALITY, Shadowsocks-2022, Hysteria2 and Trojan (domain + ACME) — delivering per-client configs plus one Clash/base64 subscription, with idempotent scripts, firewall lockout safeguards and adapters for DSH, Claude Code, Codex, Cursor, Gemini, Copilot and chat-only LLMs.
+---
+
+# VPS VPN 自动化部署
+
+把一台 Linux VPS 变成可用的 VPN / 代理服务器，并产出客户端配置。适用于任何能执行 shell 的 Agent（DSH、Claude Code、Codex、Cursor、Gemini CLI、Copilot），也适用于纯聊天模型（见 `references/agent-adapters.md`）。
+
+<skill_dir> = 本 SKILL.md 所在目录。工具入口：`bash <skill_dir>/scripts/vpnctl`。
+
+## 适用范围
+
+- **VPS 必须在境外**（如果要访问被封锁的站点）：国内 VPS 自己都上不了 YouTube/GitHub，当出口没有意义；用国内主机做这件事也违反云厂商条款与当地法规。本 Skill 会检测并在 `check-sites` 里直接拒绝。
+- 支持：Debian/Ubuntu、RHEL/Rocky/Alma/Fedora、Arch、openSUSE、Alpine（systemd 或 OpenRC）。
+- 需要：root 或免密 sudo、能出网（下载二进制）、`/dev/net/tun`（WireGuard 需要）。
+- 不做：Windows/macOS 服务端、商业机场面板代购、绕过当地法律。默认拒绝把密钥写进聊天记录或日志。
+
+## 第一步：选协议（先决策，再动手）
+
+| 场景 | 推荐 | 理由 |
+|---|---|---|
+| 自用/团队全隧道，追求速度与省电 | `wireguard` | 内核态 UDP，握手小、移动端省电；需 UDP 可用 |
+| 需要抗封锁、可伪装成正常 TLS 网站 | `xray-reality` | VLESS+Vision+REALITY，TCP/443，无需域名与证书 |
+| 客户端老旧/需要最简单兼容 | `ss2022` | Shadowsocks-2022（经 Xray 承载），客户端支持面最广 |
+| 弱网、丢包、跨境高延迟、移动网络 | `hysteria2` | QUIC+BBR，丢包环境下吞吐明显更好 |
+| UDP 被封 | `xray-reality` 或 `ss2022` | 均为 TCP |
+| 需要标准 TLS 节点、可配自己的域名/证书 | `trojan` | 真 TLS，客户端兼容好；需要域名 |
+| 内网互联、零信任组网 | 不在本 Skill 范围 | 用 Tailscale/Headscale，见 `references/protocol-selection.md` |
+
+拿不准时：先 `wireguard`；若宿主是 OpenVZ/LXC 或 UDP 被限，选 `xray-reality`。
+
+**要多节点就一次装齐**（三者同机、端口错开：REALITY 443/tcp、Hysteria2 443/udp、Trojan 8443/tcp）：
+
+```bash
+vpnctl up --all --domain vpn.example.com --acme-email you@example.com --client phone --yes
+```
+
+装完自动生成一份**订阅**（Clash + base64），客户端一次导入全部节点。没有域名时 `--all` 会跳过 Trojan 并说明原因。
+
+## 硬性安全规则（违反任何一条就停下来）
+
+1. **先开端口，再启服务；先验证，再改 SSH。** 顺序不能反。
+2. **不要在远程会话里直接关闭当前 SSH 端口**。改端口必须走 `vpnctl harden --ssh-port N`，它会先放行新端口，并挂 5 分钟自动回滚定时器；确认能连上新端口后再 `vpnctl harden --confirm`。
+3. **没有 `authorized_keys` 就不要关密码登录**。工具会自动检测并拒绝；不要用 `--force-password-off` 绕过。
+4. **不要在终端输出或对话里明文回显私钥**。客户端配置写到文件，用 `scp`/二维码交付。
+5. **任何破坏性操作前先 `vpnctl backup`**；`uninstall` 默认保留状态，`--purge` 才删除。
+6. **不要用 `curl | bash` 安装第三方脚本**。本 Skill 的二进制走 GitHub release + `.dgst` 校验，失败即中止。
+
+## 中国大陆用户（最常见的场景）
+
+拓扑必须是：**你（中国大陆）→ 加密隧道 → 境外 VPS → 目标网站**。
+
+| 角色 | 位置 | 说明 |
+|---|---|---|
+| 客户端 | 中国大陆 | 你的手机/电脑 |
+| 出口 | **境外**：日本 / 新加坡 / 美国优先，香港次之 | 香港 IP 便宜但常被 ChatGPT 判定不支持 |
+| 被访问方 | 境外网站 | YouTube / GitHub / ChatGPT |
+
+三条容易踩的坑：
+
+1. **`check-sites` 要在 VPS 上跑**，不是在你电脑上。本机跑必然全红（它测的是"这台机器→目标"这一段）。
+2. **本机不需要能访问 GitHub**：Skill 和脚本都在你本地，`remote.sh` 只用 SSH 连 VPS。
+3. **UDP 经常被限速/阻断**：中国大陆到境外的 WireGuard、Hysteria2 稳定性不如 TCP。所以加了 `--cn`：
+
+```bash
+vpnctl up --cn --client phone --yes                      # VPS 上
+bash scripts/remote.sh deploy root@IP --cn --client phone  # 笔记本上
+```
+`--cn` 只是把默认后端从 WireGuard 改成 REALITY，其余流程不变。
+
+判断一台机器能不能用，一条命令：
+
+```bash
+vpnctl check-sites
+# country CN   -> verdict: host_in_cn，退出码 6：这台机器在国内，换境外机器
+# country JP   -> verdict: ok / chatgpt_blocked，再决定要不要装
+```
+
+## 机器已经建好、甚至已经装了服务
+
+**不要重装**。先读 `probe` 的 `foreign` 字段，再决定接管还是重建：
+
+```bash
+vpnctl probe --json | grep -A4 foreign
+vpnctl import hysteria2 phone            # 读现有配置，不改服务、不重启
+vpnctl sub --name phone --template /root/conf.yaml --serve
+```
+
+完整步骤、安全保证和常见坑见 `references/adopt-existing.md`。
+
+## 从零开始（连机器都还没有）
+
+先创建机器，再配置——两步可以合成一条命令：
+
+```bash
+export VULTR_API_KEY="..."
+bash ../vps-provision/scripts/vpsctl up --name jp1 --region nrt \
+     --plan vc2-1c-1gb --os 2136 --cn --client phone
+```
+
+如果没有 `vps-provision`，先按云厂商控制台开一台机，再走下面的路径。
+
+## 被一段提示词唤起时（标准入口）
+
+如果用户是**粘贴一段话**让你干活（而不是逐步对话），按这个顺序：
+
+1. 读 `references/intake.md`，**一次问完**所有信息（默认值先填好）。
+2. `bash scripts/remote.sh connect root@<IP>` —— 先证明 SSH、sudo、系统版本都可用，再谈部署。
+3. 只读检查：`probe` → `plan` → `check-sites`，把「改什么 / 风险 / 回滚」列给用户，**等授权**。
+4. 授权后连续执行，不逐步打断。
+5. 交付：订阅链接（或文件路径）+ 导入方式 + 回滚命令。
+
+可直接复制的提示词模板在 `assets/ENTRY-PROMPT.md`，含中英文两版。
+
+## 一键路径（优先使用）
+
+用户说「帮我配好」「自动装一个」时，不要逐步执行，直接走一键：
+
+```bash
+# 在笔记本上，一条命令完成：上传 -> 安装 -> 开端口 -> 建客户端 -> 验证 -> 取回配置
+bash <skill_dir>/scripts/remote.sh deploy root@<VPS_IP> --client phone
+
+# 已经在 VPS 上时
+vpnctl up --client phone --yes
+vpnctl up --backend hysteria2 --client phone --yes   # 指定后端
+vpnctl up --dry-run                                  # 只看计划
+```
+
+`up` 的后端选择规则（`--backend auto`，默认）：
+
+| 条件 | 选择 |
+|---|---|
+| 有 `/dev/net/tun` 且内核模块可用 | `wireguard` |
+| 容器（lxc/openvz/docker）或无 TUN | `xray-reality` |
+| TCP/443 已被占用 | `hysteria2` |
+| 其它 | `xray-reality` |
+
+`up` 默认只开防火墙、不动 sshd；需要一并加固 SSH 时加 `--ssh-harden`。失败即停，不会带着半成品继续。非交互执行必须带 `--yes`。
+
+装完会**自动生成订阅**（Clash 完整配置 + base64），并跑一次站点可达性检查。
+
+**有自己的分流策略时**，用 `--template` 把你的 profile 交给它——工具只替换 `proxies:` 与各分组的成员，规则、规则集、分组名原样保留：
+
+```bash
+vpnctl sub --name phone --template ~/my-clash-conf.yaml
+```
+
+示例模板见 `assets/profile-template.example.yaml`（Loyalsoldier 规则集 + 节点选择/流媒体/AI 三组）。
+
+### 目标站点：ChatGPT / YouTube / GitHub
+
+这三件事不是同一类问题，必须分开说：
+
+| 站点 | 卡在哪 | 本 Skill 怎么处理 |
+|---|---|---|
+| YouTube | 只要通道通就能看 | 订阅里 `youtube.com`/`googlevideo.com` 固定走代理 |
+| GitHub | 同上，只是可能慢 | 订阅里固定走代理 |
+| **ChatGPT** | **按出口 IP 的国家 + 机房信誉封禁**，配置再对也可能提示 "not available in your country" | `check-sites` 提前判定；订阅里加 DNS 防泄漏 + 域名固定走代理 |
+
+```bash
+vpnctl check-sites          # 部署前后都该跑：这个 IP 到底能不能开 ChatGPT
+vpnctl check-sites --json   # {"verdict":"ok"|"chatgpt_blocked"|"network_issue", ...}
+```
+
+`verdict: host_in_cn` 时先换机器——国内 VPS 无论怎么配都到不了这些站点。
+
+`verdict: chatgpt_blocked` 时**不要改配置**——换 IP 或换区域才有用（US/JP/SG 通常可用；机房 IP 被 OpenAI 标记是常态）。这时如实告诉用户，不要承诺"再调调就好"。
+
+**自动化的边界**（不要向用户承诺做不到的事）：
+
+| 能自动 | 不能自动 |
+|---|---|
+| 装包、下载二进制、生成密钥 | 开云厂商安全组（需要你的账号/API 权限） |
+| 写配置、起服务、开防火墙 | 提供 SSH 凭据或执行目标 IP |
+| 建客户端、导出配置、二维码 | 在用户手机上装 App、点导入 |
+| 健康检查与回滚 | 判断当地法律是否允许 |
+
+触发方式：用户显式调用 `/vps-vpn-setup`，或模型根据需求加载。加载本身**不会**执行任何命令——必须有 shell 工具且目标可达。
+
+## 标准流程（需要分步控制时）
+
+复制脚本到 VPS 只用一种方式（在本地执行，`scripts/remote.sh` 自动打包 + bootstrap）：
+
+```bash
+bash <skill_dir>/scripts/remote.sh push root@<VPS_IP>     # 打包上传 + 安装到 /usr/local/bin/vpnctl
+bash <skill_dir>/scripts/remote.sh run  root@<VPS_IP> probe --json
+```
+
+若已在 VPS 上（或有现成 ssh 会话），把 `scripts/` 目录拷过去后直接：
+
+```bash
+bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
+```
+
+0. **探测**（只读，绝不修改主机）
+   ```bash
+   vpnctl probe --json
+   ```
+   关注：`host.virt`（lxc/openvz → WireGuard 不可用）、`capabilities.tun_device`、`network.public_ipv4`、`firewall.kind`、`listening.*`（端口是否被占）。
+
+1. **出计划并复核**（不执行）
+   ```bash
+   vpnctl plan wireguard
+   ```
+   计划里出现意外的端口、网段、SNI 时，先停下来向用户确认。
+
+2. **安装**
+   ```bash
+   vpnctl install wireguard --yes
+   vpnctl install xray-reality --port 443 --sni www.microsoft.com --yes
+   vpnctl install hysteria2 --port 443 --yes
+   vpnctl install ss2022 --port 8388 --yes
+   vpnctl install trojan --domain vpn.example.com --acme-email you@example.com --yes
+   ```
+   幂等：重复执行只更新配置，不重建密钥、不影响已有客户端。
+
+3. **放行端口 / 加固 SSH**
+   ```bash
+   vpnctl harden --no-ssh          # 只开防火墙端口，最安全的第一步
+   vpnctl harden                   # SSH 加固（有 key 时自动关密码登录）
+   vpnctl harden --status          # 复核
+   ```
+
+4. **建客户端并导出**
+   ```bash
+   vpnctl client wireguard add --name phone --yes
+   vpnctl client wireguard list
+   ```
+   导出物在 `~/vpn-clients/<backend>/<name>/`：`*.conf` / `uri.txt` / `outbound.json` / `*.png`（有 `qrencode` 时）。取回本地：
+   ```bash
+   bash <skill_dir>/scripts/remote.sh pull root@<VPS_IP> ./vpn-clients
+   ```
+
+5. **验证**（必须做，不能只看服务状态）
+   ```bash
+   vpnctl verify wireguard --json
+   ```
+   `ok:true` 才算完成；WireGuard 额外看 `peers/handshaked`（客户端首次握手后才会增长），其它后端看 `service/config/tcp` 三项。
+
+6. **交付**：告诉用户客户端 App 名称、导入方式、二维码文件路径，以及一条回滚命令。
+
+## 命令速查
+
+| 命令 | 作用 |
+|---|---|
+| `vpnctl up [--backend NAME] [--client NAME]` | **一键**：选后端 → 安装 → 开端口 → 建客户端 → 验证 |
+| `vpnctl probe [--json]` | 主机/网络/端口/已装后端盘点（只读） |
+| `vpnctl sub --name N [--out DIR] [--template FILE] [--serve]` | 汇成一份订阅；`--template` 套用你的规则，`--serve` 同时给出订阅**链接** |
+| `vpnctl sub --unserve` | 关闭订阅链接服务 |
+| `vpnctl import hysteria2 [NAME]` | 把**手装**的 Hysteria2 纳入管理（不改服务） |
+| `vpnctl plan <be>` | 打印将要执行的动作（只读） |
+| `vpnctl install <be> [opts]` | 安装或重配后端（幂等） |
+| `vpnctl client <be> add --name N` | 新增客户端并导出 |
+| `vpnctl client <be> list` | 列出客户端 |
+| `vpnctl client <be> remove --name N` | 吊销客户端（立即生效） |
+| `vpnctl client <be> export --name N [--out DIR]` | 重新渲染导出物 |
+| `vpnctl verify <be> [--json]` | 健康检查 |
+| `vpnctl check-sites [--json]` | 这个 IP 能不能开 ChatGPT/YouTube/GitHub（退出码 5 = 地区被封） |
+| `vpnctl harden [--status\|--ssh-port N\|--lockdown\|--no-ssh\|--confirm]` | 防火墙 + SSH 加固 |
+| `vpnctl backup` | 打包 `/etc/vpnctl` 与后端配置到 `/var/backups/vpnctl` |
+| `vpnctl uninstall <be> [--purge]` | 卸载（默认保留状态） |
+| `vpnctl doctor` | 工具自检 |
+| `vpnctl bootstrap` | 安装到 `/usr/local/lib/vpnctl` + `/usr/local/bin/vpnctl` |
+
+退出码：`0` 成功，`2` 用法/前置条件错误，`3` 内部错误，`4` 验证失败。全局参数 `--yes`、`--dry-run`、`--json`、`--verbose`、`--no-color` 可放在任意位置。
+
+**顺序要求**：`install` 必须在 `client add` 之前；`harden` 必须在用户真正尝试连接之前；`uninstall` 前先 `backup`。
+
+## 后端参数摘要
+
+- `wireguard`：`--port` `--subnet` `--mtu` `--dns` `--iface` `--route-ipv6` `--no-split`
+- `xray-reality`：`--port` `--sni` `--dest` `--fp` `--flow` `--version` `--mirror`
+- `ss2022`：`--port` `--method` `--version` `--mirror`
+- `hysteria2`：`--port` `--sni` `--obfs` `--obfs-password` `--no-obfs` `--masquerade` `--cert` `--key`
+- `trojan`：`--domain`（必填）`--acme-email` `--cert` `--key` `--self-signed` `--port` `--alpn`
+
+`--mirror` 用于 VPS 拉不到 GitHub 的场景；不要自行改成非官方二进制源。
+
+## 客户端交付
+
+| 后端 | 客户端 | 导入方式 |
+|---|---|---|
+| wireguard | WireGuard（官方 App） | 导入 `.conf` 或扫 `*.png`；`sysctl` 全隧道默认 `0.0.0.0/0` |
+| xray-reality | v2rayN/v2rayNG/NekoBox/sing-box/mihomo | 粘贴 `uri.txt`（`vless://…`）或 `outbound.json` |
+| ss2022 | 同上 + Shadowrocket | 粘贴 `ss://…`；2022 方法需较新客户端 |
+| hysteria2 | NekoBox/Karing/sing-box/mihomo | 粘贴 `hysteria2://…` 或 `client.yaml` |
+| trojan | v2rayN/NG、NekoBox、Shadowrocket、Clash | 粘贴 `trojan://…`；自签证书需关校验 |
+| 订阅 | Clash Verge/Mihomo、v2rayN/NG、Shadowrocket | 导入 `~/vpn-clients/_subscriptions/<name>/clash.yaml` 或 `v2ray.txt` |
+
+REALITY 的 `sni/pbk/sid` 必须与服务器一致；Hysteria2 用自签证书时客户端需 `insecure` 或按 `info.txt` 里的 sha256 固定证书；Trojan 用自签证书时同样要关校验，用 ACME/自备证书则不要关。
+
+**要**链接**而不是文件时加 `--serve`：
+
+```bash
+vpnctl sub --name phone --template /root/conf.yaml --serve
+# http://<IP>:<PORT>/<token>/clash.yaml
+```
+
+URL 本身就是密码（bearer credential）：token 32 位随机、端口随机、服务只认 `/<token>/` 下的三个文件。
+不用时 `vpnctl sub --unserve` 立即关闭。
+
+订阅是完整 Clash 配置（含 `dns` 防泄漏块与目标站点规则），不是只列节点。订阅是凭据**：`clash.yaml` / `v2ray.txt` 里是可直接连的节点，等同于密码。不要贴群、不要提交 Git；要给别人用就单发文件。
+
+## 排障入口
+
+先 `vpnctl verify <be> --json`、`vpnctl probe --json`、`vpnctl check-sites`，再查 `references/troubleshooting.md`。常见：UDP 被云厂商安全组挡住（WireGuard/Hysteria2 连不上但服务正常）、TCP/443 被 nginx 占用、容器内无 TUN、时间不同步导致 REALITY 握手失败。
+
+## 维护
+
+- 升级二进制：重跑 `install`（会保留密钥与客户端）。
+- 轮换客户端：`client remove` + `client add`，旧配置立即失效。
+- 备份/迁移：`vpnctl backup` → `/var/backups/vpnctl/manual-*.tar.gz`。
+- 卸载：`uninstall` 保留 `/etc/vpnctl`，便于回滚。
+
+## 多 Agent / 多模型适配
+
+本 Skill 的内容与工具与具体 Agent 无关。`install.sh` 会按目标工具写入各自的发现路径：
+
+```bash
+bash <skill_dir>/install.sh --target auto     # 自动探测已安装的 Agent
+bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agents
+```
+
+各工具的目录约定、能力分级（能跑 shell / 只能给命令 / 纯聊天）与降级策略见 `references/agent-adapters.md`；纯聊天模型用 `assets/prompts/chat-only.md`。
+
+## 资源
+
+- `scripts/vpnctl` — 主入口（探测/安装/客户端/校验/卸载）
+- `scripts/remote.sh` — 本地侧上传与远程执行；`connect` 做 SSH 体检
+- `scripts/lib/` — 共享库与 5 个后端（新增后端只需实现同一组 `be_*` 函数，见 `references/extending.md`）
+- `references/protocol-selection.md` — 选型与网络环境判断
+- `references/agent-adapters.md` — 多 Agent / 多模型适配矩阵
+- `references/client-setup.md` — 各平台客户端详解
+- `references/troubleshooting.md` — 排障手册
+- `references/security-hardening.md` — 加固与合规要点
+- `references/operations.md` — 运维：监控、轮换、迁移、限流
+- `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
+- `tests/smoke.sh` — 本机 140 项断言（无需 VPS）
+- `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
+- `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
+- `assets/` — 可粘贴的提示词与各 Agent 的命令模板
+
+## 完成标准（Definition of Done）
+
+1. `vpnctl verify <be> --json` 返回 `"ok": true`。
+2. 至少一个客户端导出物已生成，且用户能说出导入方式。
+3. `vpnctl harden --status` 显示 VPN 端口已放行、SSH 状态符合预期。
+4. 明确告知用户回滚方式（`uninstall` / `harden --confirm` / 云控制台）。

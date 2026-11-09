@@ -1,0 +1,833 @@
+#!/usr/bin/env bash
+# vpsctl — create, inspect and destroy cloud VPS instances, then hand them to
+# the VPN skill for configuration.
+#
+# Contract (same as vpnctl):
+#   * read-only commands never mutate anything;
+#   * every mutating command confirms unless --yes;
+#   * --dry-run prints the API calls and local writes instead of doing them;
+#   * --json writes one JSON document to stdout, progress stays on stderr;
+#   * the API key is read from the environment and never persisted.
+#
+# Exit codes: 0 ok, 2 usage/precondition, 3 provider error, 4 timeout.
+
+set -euo pipefail
+
+resolve_dir() {
+  local src="$1" dir
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case $src in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  cd -P "$(dirname "$src")" && pwd
+}
+
+SCRIPT_DIR="$(resolve_dir "${BASH_SOURCE[0]}")"
+LIB_DIR="$SCRIPT_DIR/lib"
+[ -r "$LIB_DIR/common.sh" ] || LIB_DIR="/usr/local/lib/vpsctl/lib"
+[ -r "$LIB_DIR/common.sh" ] || { printf 'vpsctl: cannot find lib/common.sh\n' >&2; exit 3; }
+# shellcheck source=lib/common.sh
+. "$LIB_DIR/common.sh"
+
+PROVIDER="${VPSCTL_PROVIDER:-vultr}"
+
+usage() {
+  cat <<'EOF'
+vpsctl — create and operate cloud VPS instances
+
+USAGE
+  vpsctl [global options] <command> [args]
+
+READ-ONLY
+  providers                 List supported providers
+  regions                   Available regions (id, city, country)
+  plans [--region ID]       Available plans with monthly price
+  os                        Available operating systems
+  keys                      SSH keys registered with the provider
+  list                      Instances created by vpsctl (local state)
+  show NAME                 Live status of one instance
+  ssh NAME [cmd...]         Open a shell, or run one command
+
+MUTATING
+  go     [--purpose chatgpt] [--template auto]
+                            ONE command: resolve region/plan/image, create, configure,
+                            apply your profile, pull client files
+  up     --name N --region R --plan P --os ID [--cn] [--client phone]
+                            Same as go but with explicit parameters
+
+  create --name N --region R --plan P --os ID [--ssh-key-file F]
+                            Create an instance, wait until it answers on SSH
+  reboot NAME               Reboot
+  snapshot NAME [--desc T]  Create a provider snapshot
+  destroy NAME              Delete the instance (asks for confirmation twice)
+
+MAINTENANCE
+  adopt LABEL               Take an existing provider instance under local management
+  setup-key                 Paste the Vultr API key once (hidden, verified, 0600)
+  doctor                    Check local prerequisites and credentials
+  version | help
+
+GLOBAL OPTIONS
+  -y, --yes        Skip confirmations
+      --dry-run    Print actions without executing
+      --json       Machine-readable output
+  -v, --verbose    Debug output
+      --no-color   Disable colour
+
+ENVIRONMENT
+  VULTR_API_KEY    Vultr API token (read + write). Required for vultr commands.
+  VPSCTL_PROVIDER  Default provider (vultr).
+  VPSCTL_HOME      Local state directory (default ~/.vpsctl).
+
+EXAMPLES
+  vpsctl regions | head
+  vpsctl create --name jp1 --region nrt --plan vc2-1c-1gb --os 2136 --yes
+  vpsctl up --name jp1 --region nrt --plan vc2-1c-1gb --os 2136 --cn --yes
+  vpsctl ssh jp1
+  vpsctl destroy jp1 --yes
+
+Exit codes: 0 ok, 2 usage/precondition, 3 provider error, 4 timeout.
+EOF
+}
+
+# --- global flags ----------------------------------------------------------
+ARGS=()
+HELP=0
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    -y|--yes) ASSUME_YES=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    --json) JSON_OUT=1 ;;
+    -v|--verbose) VERBOSE=1 ;;
+    --no-color) NO_COLOR=1 ;;
+    -h|--help)
+      # global help only before a subcommand; otherwise it belongs to that one
+      if [ "${#ARGS[@]}" -eq 0 ]; then HELP=1; else ARGS[${#ARGS[@]}]="$1"; fi
+      ;;
+    *) ARGS[${#ARGS[@]}]="$1" ;;
+  esac
+  shift
+done
+if [ "${#ARGS[@]}" -eq 0 ]; then set --; else set -- "${ARGS[@]}"; fi
+if [ "$HELP" = "1" ] || [ "$#" -eq 0 ]; then usage; exit 0; fi
+
+CMD="$1"; shift
+
+provider_setup() {
+  case $PROVIDER in
+    vultr) . "$LIB_DIR/vultr.sh" ;;
+    *) die "unknown provider '$PROVIDER' (supported: vultr)" ;;
+  esac
+}
+
+load_provider() {
+  provider_setup
+  vultr_require_key
+}
+
+need_name() {
+  [ "$#" -gt 0 ] || die "--name is required"
+  validate_name "$1"
+}
+
+# --- read-only -------------------------------------------------------------
+cmd_providers() {
+  if [ "$JSON_OUT" = "1" ]; then printf '{"providers":["vultr"]}\n'; else printf 'vultr\n'; fi
+}
+
+cmd_regions() {
+  load_provider
+  local rows; rows="$(vultr_regions)"
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"provider":%s,"regions":[' "$(json_str "$PROVIDER")"
+    local first=1 id city country
+    while IFS='|' read -r id city country; do
+      [ -n "$id" ] || continue
+      [ "$first" = "1" ] || printf ','
+      first=0
+      printf '{"id":%s,"city":%s,"country":%s}' "$(json_str "$id")" "$(json_str "$city")" "$(json_str "$country")"
+    done <<EOF
+$rows
+EOF
+    printf ']}\n'
+    return 0
+  fi
+  printf '%-10s %-22s %s\n' REGION CITY COUNTRY
+  printf '%s\n' "$rows" | while IFS='|' read -r id city country; do
+    [ -n "$id" ] || continue
+    printf '%-10s %-22s %s\n' "$id" "$city" "$country"
+  done
+}
+
+cmd_plans() {
+  load_provider
+  local region=""
+  while [ "$#" -gt 0 ]; do
+    case $1 in --region) region="${2:-}"; shift 2 ;; *) die "plans: unexpected '$1'" ;; esac
+  done
+  vultr_plans | awk -F'|' -v r="$region" '
+    BEGIN { printf "%-16s %-5s %-8s %-8s %-10s %s\n", "PLAN", "VCPU", "RAM_MB", "DISK_GB", "USD/MO", "REGIONS" }
+    { if (r == "" || index("," $6 ",", "," r ",")) printf "%-16s %-5s %-8s %-8s %-10s %s\n", $1, $2, $3, $4, $5, $6 }
+  '
+}
+
+cmd_os() {
+  load_provider
+  vultr_os | awk -F'|' 'BEGIN { printf "%-8s %-38s %s\n", "OS_ID", "NAME", "ARCH" } { printf "%-8s %-38s %s\n", $1, $2, $3 }'
+}
+
+cmd_keys() {
+  load_provider
+  local rows; rows="$(vultr_ssh_keys)"
+  if [ -z "$rows" ]; then log_warn "no ssh keys registered with $PROVIDER"; return 0; fi
+  printf '%s\n' "$rows" | awk -F'|' 'BEGIN { printf "%-24s %s\n", "KEY_ID", "NAME" } { printf "%-24s %s\n", $1, $2 }'
+}
+
+cmd_list() {
+  local only_local=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --local) only_local=1; shift ;;
+      *) die "list: unexpected argument '$1'" ;;
+    esac
+  done
+
+  local rows="" provider_ok=1
+  if [ "$only_local" = "0" ]; then
+    provider_setup
+    if vultr_key >/dev/null 2>&1; then
+      rows="$(vultr_instances 2>&1)" || { printf '%s\n' "$rows" >&2; rows=""; provider_ok=0; }
+    fi
+  fi
+
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"provider":%s,"instances":[' "$(json_str "$PROVIDER")"
+    local first=1 id label region plan status ip monthly
+    if [ -n "$rows" ]; then
+      while IFS='|' read -r id label region plan status ip monthly; do
+        [ -n "$id" ] || continue
+        [ "$first" = "1" ] || printf ','
+        first=0
+        printf '{"id":%s,"label":%s,"region":%s,"plan":%s,"status":%s,"ip":%s,"monthly_cost":%s}' \
+          "$(json_str "$id")" "$(json_str "$label")" "$(json_str "$region")" "$(json_str "$plan")" \
+          "$(json_str "$status")" "$(json_str "$ip")" "${monthly:-0}"
+      done <<ROWS
+$rows
+ROWS
+    fi
+    printf ']}\n'
+    return 0
+  fi
+
+  if [ -z "$rows" ]; then
+    local names; names="$(instance_list)"
+    if [ -n "$names" ]; then
+      log_info "provider not reachable; showing local records only"
+      printf '%-12s %-12s %-12s %s\n' NAME REGION PLAN PROVIDER_ID
+      local n
+      for n in $names; do
+        printf '%-12s %-12s %-12s %s\n' "$n" "$(instance_get "$n" REGION)" \
+          "$(instance_get "$n" PLAN)" "$(instance_get "$n" ID)"
+      done
+      return 0
+    fi
+    if [ "$provider_ok" = "0" ]; then
+      log_err "could not query $PROVIDER (see the error above); local records are empty too"
+    else
+      log_info "no instances in the $PROVIDER account and no local records"
+    fi
+    return 0
+  fi
+
+  printf '%-22s %-16s %-6s %-14s %-10s %s\n' LABEL IP REGION PLAN STATUS ID
+  local id label region plan status ip monthly
+  while IFS='|' read -r id label region plan status ip monthly; do
+    [ -n "$id" ] || continue
+    local mark=""
+    [ -n "$(instance_get "$label" ID 2>/dev/null)" ] && mark=" *"
+    printf '%-22s %-16s %-6s %-14s %-10s %s%s\n' "${label:-$id}" "$ip" "$region" "$plan" "$status" "$id" "$mark"
+  done <<ROWS
+$rows
+ROWS
+  printf '\n  * = also tracked locally by vpsctl\n'
+}
+
+cmd_show() {
+  need_name "$@"
+  local name="$1"
+  instance_exists "$name" || die "no instance named '$name' (try: vpsctl list)"
+  local id; id="$(instance_get "$name" ID)"
+  load_provider
+  local line status ip label region plan monthly created
+  line="$(vultr_instance "$id")" || die "could not read instance $id from $PROVIDER"
+  status="${line%%|*}"; line="${line#*|}"
+  ip="${line%%|*}"; line="${line#*|}"
+  label="${line%%|*}"; line="${line#*|}"
+  region="${line%%|*}"; line="${line#*|}"
+  plan="${line%%|*}"; line="${line#*|}"
+  monthly="${line%%|*}"; created="${line#*|}"
+
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"name":%s,"id":%s,"status":%s,"ip":%s,"region":%s,"plan":%s,"monthly_cost":%s,"created":%s}\n' \
+      "$(json_str "$name")" "$(json_str "$id")" "$(json_str "$status")" "$(json_str "$ip")" \
+      "$(json_str "$region")" "$(json_str "$plan")" "$monthly" "$(json_str "$created")"
+    return 0
+  fi
+  printf 'name      %s\n' "$name"
+  printf 'id        %s\n' "$id"
+  printf 'status    %s\n' "$status"
+  printf 'ip        %s\n' "$ip"
+  printf 'region    %s\n' "$region"
+  printf 'plan      %s ($%s/mo)\n' "$plan" "$monthly"
+  printf 'created   %s\n' "$created"
+}
+
+cmd_ssh() {
+  need_name "$@"
+  local name="$1"; shift || true
+  instance_exists "$name" || die "no instance named '$name'"
+  local ip user; ip="$(instance_get "$name" IP)"
+  user="${VPSCTL_SSH_USER:-root}"
+  [ -n "$ip" ] || die "no IP recorded for '$name'"
+  local key; key="$(instance_get "$name" SSH_KEY_FILE)"
+  local key_arg=""
+  if [ -n "$key" ] && [ -r "${key%.pub}" ]; then key_arg="-i ${key%.pub}"; fi
+  if [ "$#" -gt 0 ]; then
+    # shellcheck disable=SC2086
+    ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 $key_arg "$user@$ip" "$@"
+  else
+    # shellcheck disable=SC2086
+    exec ssh -o StrictHostKeyChecking=accept-new $key_arg "$user@$ip"
+  fi
+}
+
+# --- create ----------------------------------------------------------------
+CREATE_NAME=""; CREATE_REGION=""; CREATE_PLAN=""; CREATE_OS=""; CREATE_KEY_FILE=""; CREATE_NO_WAIT=0
+
+parse_create() {
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --name|-n) CREATE_NAME="${2:-}"; shift 2 ;;
+      --region|-r) CREATE_REGION="${2:-}"; shift 2 ;;
+      --plan|-p) CREATE_PLAN="${2:-}"; shift 2 ;;
+      --os) CREATE_OS="${2:-}"; shift 2 ;;
+      --ssh-key-file) CREATE_KEY_FILE="${2:-}"; shift 2 ;;
+      --no-wait) CREATE_NO_WAIT=1; shift ;;
+      --cn) UP_CN=1; shift ;;
+      --client) UP_CLIENT="${2:-}"; shift 2 ;;
+      *) die "$CMD: unexpected argument '$1'" ;;
+    esac
+  done
+  [ -n "$CREATE_NAME" ] || die "--name is required"
+  [ -n "$CREATE_REGION" ] || die "--region is required (see: vpsctl regions)"
+  [ -n "$CREATE_PLAN" ] || die "--plan is required (see: vpsctl plans)"
+  [ -n "$CREATE_OS" ] || die "--os is required (see: vpsctl os)"
+  validate_name "$CREATE_NAME"
+  [ -z "$CREATE_KEY_FILE" ] || [ -r "$CREATE_KEY_FILE" ] || die "ssh key not readable: $CREATE_KEY_FILE"
+}
+
+do_create() {
+  load_provider
+  instance_exists "$CREATE_NAME" && die "an instance named '$CREATE_NAME' already exists locally (vpsctl show $CREATE_NAME)"
+
+  # Pick an SSH public key: explicit, then the conventional default, then the
+  # first key in ~/.ssh. A one-sentence request must not stall on this.
+  local key_file="${CREATE_KEY_FILE:-}"
+  if [ -z "$key_file" ]; then
+    if [ -r "$HOME/.ssh/id_ed25519.pub" ]; then
+      key_file="$HOME/.ssh/id_ed25519.pub"
+    else
+      key_file="$(ls -1 "$HOME"/.ssh/*.pub 2>/dev/null | head -n 1)"
+    fi
+  fi
+  [ -n "$key_file" ] || die "no ssh public key found in ~/.ssh; pass --ssh-key-file PATH"
+  [ -r "$key_file" ] || die "ssh public key not readable: $key_file"
+  case $key_file in
+    "$HOME/.ssh/id_ed25519.pub") ;;
+    *) log_info "using ssh key: $key_file" ;;
+  esac
+  local key_id="" key_name="vpsctl-$(basename "${key_file%.pub}")"
+  local price; price="$(vultr_plans | awk -F'|' -v p="$CREATE_PLAN" '$1==p {print $5; exit}')"
+  [ -n "$price" ] || log_warn "plan '$CREATE_PLAN' not found in the price list; continuing anyway"
+
+  log_step "create $CREATE_NAME"
+  printf '  provider  %s\n' "$PROVIDER" >&2
+  printf '  region    %s\n' "$CREATE_REGION" >&2
+  printf '  plan      %s%s\n' "$CREATE_PLAN" "${price:+ (\$$price/mo)}" >&2
+  printf '  os_id     %s\n' "$CREATE_OS" >&2
+  printf '  ssh key   %s\n' "$key_file" >&2
+  confirm "Create this instance? It will start billing immediately."
+
+  if [ "$DRY_RUN" = "1" ]; then
+    log_info "dry run: would register $key_file, POST /instances, wait for boot and ssh"
+    return 0
+  fi
+  if [ "$DRY_RUN" != "1" ]; then
+    key_id="$(vultr_ensure_key "$key_file" "$key_name")"
+  fi
+
+  local id
+  id="$(vultr_create "$CREATE_REGION" "$CREATE_PLAN" "$CREATE_OS" "$CREATE_NAME" "$key_id")"
+  [ -n "$id" ] || die "provider did not return an instance id"
+  log_ok "instance created: $id"
+
+  instance_save "$CREATE_NAME" \
+    "PROVIDER=$PROVIDER" "ID=$id" "REGION=$CREATE_REGION" "PLAN=$CREATE_PLAN" \
+    "OS_ID=$CREATE_OS" "SSH_KEY_FILE=$key_file" \
+    "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "IP=" "STATUS=provisioning"
+
+  if [ "$CREATE_NO_WAIT" = "1" ] || [ "$DRY_RUN" = "1" ]; then
+    log_info "not waiting (--no-wait); check later with: vpsctl show $CREATE_NAME"
+    return 0
+  fi
+
+  local ip
+  if ! ip="$(vultr_wait_active "$id" 600)"; then
+    log_err "the instance did not become active in time"
+    log_info "check the provider dashboard; state kept at $(instance_file "$CREATE_NAME")"
+    exit 4
+  fi
+  instance_save "$CREATE_NAME" \
+    "PROVIDER=$PROVIDER" "ID=$id" "REGION=$CREATE_REGION" "PLAN=$CREATE_PLAN" \
+    "OS_ID=$CREATE_OS" "SSH_KEY_FILE=$key_file" \
+    "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "IP=$ip" "STATUS=active"
+  log_ok "instance is up: $ip"
+
+  wait_for_ssh "$ip" "$key_file" || { log_warn "SSH did not answer yet; retry: vpsctl ssh $CREATE_NAME"; return 0; }
+  printf '%s\n' "$ip"
+}
+
+wait_for_ssh() {
+  local ip="$1" key="$2" tries="${3:-30}" i=1
+  local key_arg=""
+  if [ -r "${key%.pub}" ]; then key_arg="-i ${key%.pub}"; fi
+  while [ "$i" -le "$tries" ]; do
+    # shellcheck disable=SC2086
+    if ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=6 \
+           $key_arg "root@$ip" true 2>/dev/null; then
+      log_ok "ssh is ready"
+      return 0
+    fi
+    [ $((i % 3)) -eq 0 ] && log_info "waiting for ssh ($i/$tries)"
+    sleep 5; i=$((i + 1))
+  done
+  return 1
+}
+
+cmd_create() { parse_create "$@"; do_create >/dev/null; }
+
+# --- lifecycle -------------------------------------------------------------
+cmd_reboot() {
+  need_name "$@"
+  local name="$1"
+  instance_exists "$name" || die "no instance named '$name'"
+  load_provider
+  local id; id="$(instance_get "$name" ID)"
+  confirm "Reboot $name ($id)?"
+  vultr_reboot "$id"
+  log_ok "reboot requested for $name"
+}
+
+cmd_snapshot() {
+  need_name "$@"
+  local name="$1"; shift || true
+  local desc="vpsctl-$(date -u +%Y%m%dT%H%M%SZ)"
+  while [ "$#" -gt 0 ]; do
+    case $1 in --desc) desc="${2:-}"; shift 2 ;; *) die "snapshot: unexpected '$1'" ;; esac
+  done
+  instance_exists "$name" || die "no instance named '$name'"
+  load_provider
+  local id; id="$(instance_get "$name" ID)"
+  confirm "Create a snapshot of $name ($id)?"
+  local out; out="$(vultr_snapshot "$id" "$desc")" || die "snapshot failed"
+  log_ok "snapshot created: $out"
+}
+
+cmd_destroy() {
+  need_name "$@"
+  local name="$1"
+  instance_exists "$name" || die "no instance named '$name' (vpsctl list)"
+  load_provider
+  local id ip; id="$(instance_get "$name" ID)"; ip="$(instance_get "$name" IP)"
+  log_warn "destroying $name ($id at ${ip:-unknown}) deletes the server and its disks."
+  log_warn "snapshots survive, but this IP will not come back."
+  confirm "Really destroy '$name'?"
+  if [ "$ASSUME_YES" != "1" ] && [ -t 0 ]; then
+    printf 're-type the instance name: ' >&2
+    local answer; read -r answer
+    [ "$answer" = "$name" ] || die "name mismatch, aborted"
+  fi
+  vultr_delete "$id" || die "provider refused the delete call"
+  instance_forget "$name"
+  log_ok "destroyed $name"
+}
+
+# --- one command: create + configure --------------------------------------
+cmd_up() {
+  parse_create "$@"
+  do_create >/dev/null
+  local ip; ip="$(instance_get "$CREATE_NAME" IP)"
+  if [ -z "$ip" ]; then
+    log_warn "instance exists but has no IP yet; check: vpsctl show $CREATE_NAME"
+    return 0
+  fi
+
+  local vpn_skill="${VPN_SKILL_DIR:-$(dirname "$(dirname "$SCRIPT_DIR")")/vps-vpn-setup}"
+  if [ ! -r "$vpn_skill/scripts/remote.sh" ]; then
+    log_warn "VPN skill not found at $vpn_skill — the instance is ready, configure it manually"
+    log_info "set VPN_SKILL_DIR=/path/to/vps-vpn-setup or run: ssh root@$ip"
+    return 0
+  fi
+
+  log_step "deploying the VPN stack"
+  # remote.sh takes its options before the action word.
+  local opts=""
+  if [ "${UP_CN:-0}" = "1" ]; then opts="$opts --cn"; fi
+  if [ -n "${UP_CLIENT:-}" ]; then opts="$opts --client $UP_CLIENT"; fi
+  # shellcheck disable=SC2086
+  bash "$vpn_skill/scripts/remote.sh" $opts deploy "root@$ip"
+  log_ok "done — client files were pulled into ./vpn-clients"
+}
+
+
+# ---------------------------------------------------------------------------
+# go: the one-sentence entry. Resolve every default from the provider, create,
+# configure, and hand back a subscription — no questions, one command.
+# ---------------------------------------------------------------------------
+GO_PURPOSE="chatgpt"
+GO_TEMPLATE="auto"
+GO_CLIENT="phone"
+GO_NAME="auto"
+GO_REGION="auto"
+GO_PLAN="auto"
+GO_OS="auto"
+GO_CN=1
+
+# resolve_region PURPOSE -> region id
+resolve_region() {
+  local purpose="$1" avail pref
+  avail="$(vultr_regions | cut -d'|' -f1)"
+  [ -n "$avail" ] || die "could not list regions from $PROVIDER"
+  case $purpose in
+    chatgpt) pref="nrt sgp sea lax ord" ;;   # OpenAI-friendly, low latency from CN
+    streaming) pref="lax sea nrt sgp" ;;
+    budget) pref="sea sgp nrt lax" ;;
+    *) pref="nrt sgp sea lax" ;;
+  esac
+  local r
+  for r in $pref; do
+    if printf '%s\n' "$avail" | grep -qx "$r"; then printf '%s' "$r"; return 0; fi
+  done
+  printf '%s' "$(printf '%s\n' "$avail" | head -n 1)"
+}
+
+# resolve_plan REGION [MIN_RAM_MB] -> plan id (cheapest that fits)
+resolve_plan() {
+  local region="$1" min_ram="${2:-1024}"
+  vultr_plans | awk -F'|' -v r="$region" -v m="$min_ram" '
+    {
+      split($6, regions, ","); ok = 0
+      for (i in regions) if (regions[i] == r) ok = 1
+      if (ok && $3 + 0 >= m) { if (best == "" || $5 + 0 < price) { best = $1; price = $5 + 0 } }
+    }
+    END { print best }
+  '
+}
+
+# resolve_os [PREFERENCE] -> os id (newest Debian by default)
+resolve_os() {
+  local want="${1:-debian}"
+  vultr_os | awk -F'|' -v w="$want" '
+    tolower($2) ~ tolower(w) {
+      name = $2
+      ver = name
+      sub(/^[^0-9]*/, "", ver); sub(/[^0-9.].*$/, "", ver)
+      split(ver, p, ".")
+      v = p[1] + 0
+      if (v >= best) { best = v; id = $1 }
+    }
+    END { print id }
+  '
+}
+
+resolve_name() {
+  local region="$1" base i=1
+  base="$(printf '%s' "$region" | cut -c1-3)"
+  while [ "$i" -lt 100 ]; do
+    if ! instance_exists "$base$i"; then printf '%s%s' "$base" "$i"; return 0; fi
+    i=$((i + 1))
+  done
+  die "could not find a free instance name"
+}
+
+# resolve_template auto|FILE -> path or empty
+resolve_template() {
+  local want="$1" c
+  case $want in
+    ""|no|none) return 0 ;;
+    auto)
+      for c in "./conf.yaml" "$HOME/Limao/conf.yaml" "$HOME/.config/vpsctl/template.yaml" "${VPNCTL_TEMPLATE:-}"; do
+        [ -n "$c" ] && [ -r "$c" ] && { printf '%s' "$c"; return 0; }
+      done
+      return 0 ;;
+    *) [ -r "$want" ] || die "template not found: $want"; printf '%s' "$want"; return 0 ;;
+  esac
+}
+
+cmd_go() {
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --purpose) GO_PURPOSE="${2:-}"; shift 2 ;;
+      --template) GO_TEMPLATE="${2:-}"; shift 2 ;;
+      --client) GO_CLIENT="${2:-}"; shift 2 ;;
+      --name) GO_NAME="${2:-}"; shift 2 ;;
+      --region) GO_REGION="${2:-}"; shift 2 ;;
+      --plan) GO_PLAN="${2:-}"; shift 2 ;;
+      --os) GO_OS="${2:-}"; shift 2 ;;
+      --no-cn) GO_CN=0; shift ;;
+      -h|--help)
+        cat <<'EOF'
+go options (one-sentence setup — every default is resolved automatically):
+  --purpose chatgpt|streaming|budget|general   region + plan policy (default chatgpt)
+  --template auto|FILE|no                       reuse your Clash profile (default: auto-detect)
+  --client NAME                                 client to create (default phone)
+  --region / --plan / --os / --name             override any resolved default
+  --no-cn                                       clients are not in mainland China
+
+Defaults: region nrt/sgp/sea per purpose, cheapest plan with >=1GB RAM,
+newest Debian, name <region><n>, split tunnel with REALITY preferred.
+EOF
+        return 0 ;;
+      *) die "go: unknown option '$1'" ;;
+    esac
+  done
+
+  load_provider
+  vultr_require_python
+
+  local region plan os_id name ip tpl
+  region="$GO_REGION"
+  [ "$region" = "auto" ] && region="$(resolve_region "$GO_PURPOSE")"
+  plan="$GO_PLAN"
+  [ "$plan" = "auto" ] && plan="$(resolve_plan "$region" 1024)"
+  os_id="$GO_OS"
+  [ "$os_id" = "auto" ] && os_id="$(resolve_os debian)"
+  name="$GO_NAME"
+  [ "$name" = "auto" ] && name="$(resolve_name "$region")"
+  tpl="$(resolve_template "$GO_TEMPLATE")"
+
+  [ -n "$region" ] || die "could not resolve a region"
+  [ -n "$plan" ] || die "no plan with >=1GB RAM is available in $region"
+  [ -n "$os_id" ] || die "could not find a Debian image"
+  validate_name "$name"
+
+  log_step "plan"
+  printf '  purpose   %s\n' "$GO_PURPOSE" >&2
+  printf '  region    %s\n' "$region" >&2
+  printf '  plan      %s (%s)\n' "$plan" "$(vultr_plans | awk -F'|' -v p="$plan" '$1==p {printf "$%s/mo", $5; exit}')" >&2
+  printf '  image     %s\n' "$(vultr_os | awk -F'|' -v id="$os_id" '$1==id {print $2; exit}')" >&2
+  printf '  name      %s\n' "$name" >&2
+  printf '  client    %s\n' "$GO_CLIENT" >&2
+  printf '  profile   %s\n' "${tpl:-built-in split tunnel}" >&2
+  printf '  tunnel    %s\n' "$([ "$GO_CN" = "1" ] && printf 'mainland client (REALITY first)' || printf 'generic')" >&2
+
+  if [ "$DRY_RUN" = "1" ]; then
+    log_info "dry run: everything above is resolved from the live API; nothing created"
+    return 0
+  fi
+  confirm "Create this instance and configure it now?"
+  ASSUME_YES=1
+
+  CREATE_NAME="$name"; CREATE_REGION="$region"; CREATE_PLAN="$plan"; CREATE_OS="$os_id"
+  # leave CREATE_KEY_FILE empty unless the user passed --ssh-key-file:
+  # do_create discovers a usable key on its own.
+  CREATE_NO_WAIT=0
+  do_create >/dev/null
+  ip="$(instance_get "$name" IP)"
+  [ -n "$ip" ] || die "instance created but no IP was reported; check: vpsctl show $name"
+
+  local vpn_skill="${VPN_SKILL_DIR:-$(dirname "$(dirname "$SCRIPT_DIR")")/vps-vpn-setup}"
+  [ -r "$vpn_skill/scripts/remote.sh" ] || {
+    log_warn "VPN skill not found at $vpn_skill; the host is ready at root@$ip"
+    return 0
+  }
+
+  log_step "configure"
+  local opts="--client $GO_CLIENT"
+  [ "$GO_CN" = "1" ] && opts="--cn $opts"
+  # shellcheck disable=SC2086
+  bash "$vpn_skill/scripts/remote.sh" $opts deploy "root@$ip" || die "VPN deployment failed; inspect: vpsctl ssh $name"
+
+  if [ -n "$tpl" ]; then
+    log_step "apply your profile"
+    local remote_tpl="/root/.vpnctl-profile.yaml"
+    scp -q -o StrictHostKeyChecking=accept-new "$tpl" "root@$ip:$remote_tpl" 2>/dev/null \
+      || log_warn "could not copy the template; keeping the generated profile"
+    if [ -r "$vpn_skill/scripts/remote.sh" ]; then
+      bash "$vpn_skill/scripts/remote.sh" run "root@$ip" sub --name "$GO_CLIENT" --template "$remote_tpl" >/dev/null 2>&1 \
+        || log_warn "could not re-render with your template; the default profile is still valid"
+    fi
+  fi
+
+  log_step "collect"
+  bash "$vpn_skill/scripts/remote.sh" pull "root@$ip" ./vpn-clients >/dev/null 2>&1 \
+    || log_warn "could not pull client files; fetch them with: vpsctl ssh $name"
+
+  log_ok "ready: $name at $ip — client files in ./vpn-clients"
+  printf '  next  import %s into your client\n' "./vpn-clients/_subscriptions/$GO_CLIENT/clash.yaml" >&2
+}
+
+
+# ---------------------------------------------------------------------------
+# setup-key: paste the API key once, hidden, verified, stored 0600.
+# This replaces "edit a file by hand" for the one unavoidable manual step.
+# ---------------------------------------------------------------------------
+cmd_setup_key() {
+  provider_setup
+  local f; f="$(vultr_key_file)"
+  local key="" check_only=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --from-file) key="$(tr -d '\r\n' < "${2:?}")"; shift 2 ;;
+      --check) check_only=1; shift ;;
+      --print-path) printf '%s\n' "$f"; return 0 ;;
+      -h|--help)
+        cat <<'EOF'
+setup-key options:
+  (no args)        prompt for the key with hidden input, verify, then save
+  --check          prompt and verify only, do not save
+  --from-file F    read the key from a file
+  --from-file F    read the key from a file
+  --print-path     print where the key is stored
+
+Get the key at https://my.vultr.com/settings/#settingsapi (Read & Write).
+The file is created with mode 0600 and verified against the API before saving.
+EOF
+        return 0 ;;
+      *) die "setup-key: unknown option '$1'" ;;
+    esac
+  done
+
+  run mkdir -p "$VPSCTL_HOME"
+  if [ "$DRY_RUN" = "0" ]; then chmod 700 "$VPSCTL_HOME" 2>/dev/null || true; fi
+
+  if [ -z "$key" ]; then
+    if [ -t 0 ]; then
+      printf 'Paste the Vultr API key (input hidden), then Enter: ' >&2
+      read -rs key
+      printf '\n' >&2
+    else
+      read -r key || true
+    fi
+  fi
+  key="$(printf '%s' "$key" | tr -d '[:space:]')"
+  [ -n "$key" ] || die "no key entered"
+
+  log_info "verifying the key against $PROVIDER..."
+  if ! VULTR_API_KEY="$key" vultr_check_auth; then
+    die "verification failed — see the reason above. Nothing was saved."
+  fi
+  if [ "$check_only" = "1" ]; then
+    log_ok "the key works (read access confirmed)"
+    log_info "not saved (--check); run setup-key without --check to store it"
+    return 0
+  fi
+
+  # A read-only key passes the query above but fails at the first write, which
+  # is a confusing failure much later. Catch it here.
+  if ! VULTR_API_KEY="$key" vultr_check_write_scope; then
+    die "this key is READ-ONLY: it can list things but cannot create a server. Recreate it with 'Read & Write' permission at https://my.vultr.com/settings/#settingsapi, then run setup-key again. Nothing was saved."
+  fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    log_info "dry run: would save the verified key to $f"
+    return 0
+  fi
+  ( umask 077; printf '%s' "$key" > "$f" )
+  chmod 600 "$f"
+  log_ok "key verified and saved to $f"
+  log_info "next: vpsctl go --purpose chatgpt --yes"
+}
+
+
+# ---------------------------------------------------------------------------
+# adopt: take an instance that was created in the provider console under local
+# management, so `show` / `ssh` / `destroy` work on it.
+# ---------------------------------------------------------------------------
+cmd_adopt() {
+  [ "$#" -gt 0 ] || die "adopt requires the instance label (see: vpsctl list)"
+  local label="$1" line id rlabel region plan status ip monthly
+  load_provider
+  line="$(vultr_instances | awk -F'|' -v l="$label" '$2==l {print; exit}')"
+  [ -n "$line" ] || die "no instance labelled '$label' in this account"
+  id="${line%%|*}"; line="${line#*|}"
+  rlabel="${line%%|*}"; line="${line#*|}"
+  region="${line%%|*}"; line="${line#*|}"
+  plan="${line%%|*}"; line="${line#*|}"
+  status="${line%%|*}"; line="${line#*|}"
+  ip="${line%%|*}"
+
+  local key="${CREATE_KEY_FILE:-}"
+  if [ -z "$key" ]; then
+    if [ -r "$HOME/.ssh/id_ed25519.pub" ]; then key="$HOME/.ssh/id_ed25519.pub"
+    else key="$(ls -1 "$HOME"/.ssh/*.pub 2>/dev/null | head -n 1)"; fi
+  fi
+
+  instance_save "$rlabel" \
+    "PROVIDER=$PROVIDER" "ID=$id" "REGION=$region" "PLAN=$plan" \
+    "SSH_KEY_FILE=$key" "ADOPTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "IP=$ip" "STATUS=$status"
+  log_ok "adopted '$rlabel' ($ip, $region)"
+  log_info "next: vpsctl ssh $rlabel   or   vpsctl show $rlabel"
+}
+
+# --- doctor ----------------------------------------------------------------
+cmd_doctor() {
+  local fail=0
+  log_step "vpsctl doctor"
+  printf '  version     %s\n' "$VPSCTL_VERSION"
+  printf '  provider    %s\n' "$PROVIDER"
+  printf '  state dir   %s\n' "$VPSCTL_HOME"
+  for c in curl ssh awk sed; do
+    if have "$c"; then printf '  %-11s ok\n' "$c"; else printf '  %-11s MISSING\n' "$c"; fail=1; fi
+  done
+  if have python3; then printf '  python3     ok\n'; else printf '  python3     MISSING (required to parse API responses)\n'; fail=1; fi
+  provider_setup
+  if vultr_key >/dev/null 2>&1; then
+    printf '  API key     set (%s...)\n' "$(vultr_key | cut -c1-6)"
+    if load_provider >/dev/null 2>&1 && vultr_check_auth >/dev/null 2>&1; then
+      printf '  API call    ok\n'
+    else
+      printf '  API call    FAILED\n'; fail=1
+    fi
+  else
+    printf '  API key     not set (read-only commands still work)\n'
+  fi
+  [ "$fail" = "0" ] && log_ok "doctor: no problems found"
+  return "$fail"
+}
+
+# --- dispatch --------------------------------------------------------------
+case $CMD in
+  providers) cmd_providers ;;
+  regions)   cmd_regions ;;
+  plans)     cmd_plans "$@" ;;
+  os)        cmd_os ;;
+  keys)      cmd_keys ;;
+  list)      cmd_list ;;
+  show)      cmd_show "$@" ;;
+  ssh)       cmd_ssh "$@" ;;
+  create)    cmd_create "$@" ;;
+  up)        cmd_up "$@" ;;
+  go)        cmd_go "$@" ;;
+  reboot)    cmd_reboot "$@" ;;
+  snapshot)  cmd_snapshot "$@" ;;
+  destroy)   cmd_destroy "$@" ;;
+  adopt)     cmd_adopt "$@" ;;
+  setup-key) cmd_setup_key "$@" ;;
+  doctor)    cmd_doctor ;;
+  version|--version) printf 'vpsctl %s (schema %s)\n' "$VPSCTL_VERSION" "$VPSCTL_SCHEMA" ;;
+  help)      usage ;;
+  *)         usage >&2; die "unknown command: $CMD" ;;
+esac

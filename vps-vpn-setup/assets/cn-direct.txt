@@ -1,0 +1,136 @@
+# Domains that must stay DIRECT when the tunnel is up.
+#
+# One suffix per line. Used by `vpnctl sub` to emit DOMAIN-SUFFIX,...,DIRECT
+# rules ahead of the proxy rules, so Chinese services keep their domestic route
+# instead of being sent through an overseas exit.
+#
+# Rules of thumb:
+#   - list services by their real registrable suffix (deepseek.com, not api.deepseek.com)
+#   - never list anything you want proxied
+#   - a missing entry falls back to GEOSITE,cn / GEOIP,CN when the client has geodata
+#
+# Format: domain suffix, one per line, "#" starts a comment.
+
+# --- AI / developer services in mainland China ---
+deepseek.com
+deepseek.ai
+volcengine.com
+volces.com
+ark.cn-beijing.volces.com
+bigmodel.cn
+zhipuai.cn
+moonshot.cn
+kimi.com
+baichuan-ai.com
+minimaxi.com
+sensetime.com
+iflytek.com
+xfyun.cn
+modelscope.cn
+aliyun.com
+aliyuncs.com
+tencentcloud.com
+myqcloud.com
+huaweicloud.com
+volcengine.cn
+
+# --- code hosting / package mirrors in China (stay fast + reachable) ---
+gitee.com
+gitcode.com
+cnblogs.com
+oschina.net
+csdn.net
+juejin.cn
+segmentfault.com
+51cto.com
+infoq.cn
+
+# --- big consumer platforms (apps break when tunnelled) ---
+baidu.com
+bdstatic.com
+bdimg.com
+bilibili.com
+hdslb.com
+biliapi.net
+qq.com
+qpic.cn
+qlogo.cn
+gtimg.cn
+weixin.com
+wechat.com
+weixinbridge.com
+tencent.com
+tenpay.com
+weibo.com
+weibocdn.com
+sina.com.cn
+sinaimg.cn
+163.com
+126.net
+netease.com
+127.net
+taobao.com
+tmall.com
+alicdn.com
+alipay.com
+aliyuncdn.com
+jd.com
+360buyimg.com
+pinduoduo.com
+yangkeduo.com
+douyin.com
+douyincdn.com
+toutiao.com
+ixigua.com
+kuaishou.com
+zhihu.com
+zhimg.com
+xiaohongshu.com
+xhscdn.com
+iqiyi.com
+youku.com
+mgtv.com
+kugou.com
+ximalaya.com
+changba.com
+meituan.com
+dianping.com
+ctrip.com
+qunar.com
+12306.cn
+amap.com
+autonavi.com
+didi.cn
+didiglobal.com
+
+# --- productivity / office / IM ---
+feishu.cn
+larksuite.com
+dingtalk.com
+wps.cn
+wps.com
+yuque.com
+jianguoyun.com
+
+# --- infra / OS / CDN edges that must stay local ---
+cnpmjs.org
+npmmirror.com
+aliyun-oss.com
+qiniu.com
+qiniudns.com
+upyun.com
+chinacache.com
+lxdns.com
+
+# --- government / banking / utilities (never proxy) ---
+gov.cn
+12345.gov.cn
+icbc.com.cn
+ccb.com.cn
+abchina.com
+boc.cn
+cmbchina.com
+unionpay.com
+chinaunicom.com
+10086.cn
+189.cn

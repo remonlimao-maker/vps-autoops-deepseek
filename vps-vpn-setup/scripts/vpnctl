@@ -1,0 +1,1403 @@
+#!/usr/bin/env bash
+# vpnctl — one entry point for provisioning and operating a VPN on a Linux VPS.
+#
+# Design contract (also what agents should rely on):
+#   * every command is idempotent and safe to re-run;
+#   * mutating commands are additive and back up anything they replace;
+#   * --dry-run prints the exact commands without executing them;
+#   * --json writes a single JSON document to stdout (progress stays on stderr);
+#   * read-only commands (probe, plan, verify, list) never change the host.
+#
+# Supported backends: wireguard | xray-reality | ss2022 | hysteria2
+
+set -euo pipefail
+
+# Resolve the real directory even when invoked through a symlink
+# (/usr/local/bin/vpnctl -> /usr/local/lib/vpnctl/vpnctl).
+resolve_dir() {
+  local src="$1" dir
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case $src in
+      /*) ;;
+      *) src="$dir/$src" ;;
+    esac
+  done
+  cd -P "$(dirname "$src")" && pwd
+}
+
+SCRIPT_DIR="$(resolve_dir "${BASH_SOURCE[0]}")"
+LIB_DIR="$SCRIPT_DIR/lib"
+if [ ! -r "$LIB_DIR/common.sh" ]; then
+  # Installed layout: /usr/local/lib/vpnctl/lib/*.sh
+  LIB_DIR="/usr/local/lib/vpnctl/lib"
+fi
+[ -r "$LIB_DIR/common.sh" ] || { printf 'vpnctl: cannot find lib/common.sh next to %s\n' "$0" >&2; exit 3; }
+# shellcheck source=lib/common.sh
+. "$LIB_DIR/common.sh"
+
+BACKENDS="wireguard xray-reality ss2022 hysteria2 trojan"
+
+usage() {
+  cat <<'EOF'
+vpnctl — automated VPN provisioning for a Linux VPS
+
+USAGE
+  vpnctl [global options] <command> [args]
+
+READ-ONLY
+  probe                     Inventory the host: OS, virt, ports, firewall, installed VPNs
+  plan <backend>            Show exactly what install would do (no changes)
+  verify <backend>          Health-check an installed backend
+  check-sites [--json]      Test chatgpt / youtube / github reachability and ChatGPT region from this IP
+                            exit 5 means the network is fine but ChatGPT is region-blocked
+  client <backend> list     List clients
+
+PROVISIONING
+  up [--backend NAME] [--client NAME] [--all]
+                            One-shot: pick backend -> install -> firewall -> client -> verify
+                            --all deploys REALITY + Hysteria2 (+ Trojan with --domain) at once
+  sub --name NAME [--out DIR]
+                            Build one Clash + base64 subscription from every installed backend
+  install <backend>         Install/configure a backend (idempotent)
+  client <backend> add --name NAME
+                            Create a client and write configs + share URI
+  client <backend> export --name NAME [--out DIR]
+                            Re-render client artifacts
+  client <backend> remove --name NAME
+                            Revoke a client
+  harden                    SSH auth hardening + open VPN ports in the firewall
+  import hysteria2 [NAME]   Register a hand-installed Hysteria2 so `sub` can include it
+  backup                    Snapshot /etc/vpnctl and backend configs
+  uninstall <backend> [--purge]
+
+MAINTENANCE
+  doctor                    Check the tool's own prerequisites
+  bootstrap                 Install vpnctl into /usr/local (lib + bin)
+  version | help
+
+BACKENDS
+  wireguard      WireGuard (UDP, kernel-space, fastest; best default)
+  xray-reality   Xray VLESS + REALITY (TCP/443, TLS camouflage, censorship-resistant)
+  ss2022         Shadowsocks-2022 via Xray (simple, wide client support)
+  hysteria2      Hysteria2 (QUIC/UDP, best on lossy or high-latency links)
+  trojan         Trojan (TLS, needs a domain; pass --domain)
+
+GLOBAL OPTIONS
+  -y, --yes        Assume yes for confirmations (required in non-interactive use)
+      --dry-run    Print commands instead of running them
+      --json       Machine-readable output on stdout
+  -v, --verbose    Debug output on stderr
+      --no-color   Disable ANSI colour
+
+EXAMPLES
+  vpnctl up --client phone --yes          # everything in one command
+  vpnctl up --all --domain vpn.example.com --client phone --yes   # 3 nodes + subscription
+  vpnctl up --backend hysteria2 --client phone --yes
+  vpnctl check-sites                      # can this IP open ChatGPT/YouTube/GitHub?
+  vpnctl probe --json
+  vpnctl install wireguard --yes
+  vpnctl client wireguard add --name phone --yes
+  vpnctl install xray-reality --port 443 --sni www.microsoft.com --yes
+  vpnctl verify xray-reality --json
+
+Exit codes: 0 success, 2 usage/precondition error, 3 internal error, 4 verification failed.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# argument pre-pass: global flags anywhere in argv
+# ---------------------------------------------------------------------------
+ARGS=()
+HELP=0
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    -y|--yes) ASSUME_YES=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    --json) JSON_OUT=1 ;;
+    -v|--verbose) VERBOSE=1 ;;
+    --no-color) NO_COLOR=1 ;;
+    -h|--help)
+      # Before any non-flag token this is the global help; after a subcommand
+      # it belongs to that subcommand (e.g. `plan hysteria2 --help`).
+      if [ "${#ARGS[@]}" -eq 0 ]; then HELP=1; else ARGS[${#ARGS[@]}]="$1"; fi
+      ;;
+    *) ARGS[${#ARGS[@]}]="$1" ;;
+  esac
+  shift
+done
+if [ "${#ARGS[@]}" -eq 0 ]; then set -- ; else set -- "${ARGS[@]}"; fi
+
+if [ "$HELP" = "1" ] || [ "$#" -eq 0 ]; then usage; exit 0; fi
+
+CMD="$1"; shift
+case $CMD in
+  version|--version)
+    printf 'vpnctl %s (schema %s)\n' "$VPNCTL_VERSION" "$VPNCTL_SCHEMA"
+    exit 0 ;;
+esac
+
+# ---------------------------------------------------------------------------
+# backend loading
+# ---------------------------------------------------------------------------
+load_backend() {
+  local be="$1"
+  case $be in
+    wireguard)     . "$LIB_DIR/backend-wireguard.sh" ;;
+    xray-reality)  . "$LIB_DIR/backend-xray.sh" ;;
+    ss2022)        . "$LIB_DIR/backend-xray.sh" ;;
+    hysteria2)     . "$LIB_DIR/backend-hysteria2.sh" ;;
+    trojan)        . "$LIB_DIR/backend-trojan.sh" ;;
+    "")            die "backend is required; one of: $BACKENDS" ;;
+    *)             die "unknown backend '$be'; one of: $BACKENDS" ;;
+  esac
+  BE_ID="$be"
+  if [ "$be" = "ss2022" ]; then BE_VARIANT="ss2022"; else BE_VARIANT=""; fi
+  # Restore persisted options first; explicit CLI flags parsed later win.
+  if be_installed "$be" && declare -f be_from_state >/dev/null 2>&1; then
+    be_from_state
+  fi
+}
+
+need_backend() {
+  [ "$#" -gt 0 ] || die "backend is required; one of: $BACKENDS"
+  load_backend "$1"
+}
+
+# --dry-run must be usable without root: it never mutates the host.
+need_root() {
+  if [ "$DRY_RUN" = "1" ]; then return 0; fi
+  require_root "$@"
+}
+
+# ---------------------------------------------------------------------------
+# probe
+# ---------------------------------------------------------------------------
+cmd_probe() {
+  require_linux
+  detect_os
+  local virt arch kernel iface local_ip pub_ip sysd fw_kind fw_active
+  local cpus mem_mb tun_ok wg_ok inet6
+  virt="$(virt_kind)"; arch="$(uname -m)"; kernel="$(uname -r)"
+  iface="$(default_iface || true)"
+  local_ip="$(local_ipv4 || true)"
+  pub_ip="$(public_ipv4 || true)"
+  sysd="$(json_bool systemd_present)"
+  cpus="$(nproc 2>/dev/null || printf 1)"
+  mem_mb="$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || printf 0)"
+  tun_ok="$(json_bool test -c /dev/net/tun)"
+  wg_ok="$(json_bool sh -c 'modprobe -n wireguard >/dev/null 2>&1 || test -d /sys/module/wireguard')"
+  inet6="$(json_bool test -r /proc/net/if_inet6)"
+
+  fw_kind="none"; fw_active="false"
+  if have ufw && ufw status 2>/dev/null | grep -q 'Status: active'; then fw_kind="ufw"; fw_active="true"
+  elif have firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then fw_kind="firewalld"; fw_active="true"
+  elif have nft && nft list ruleset 2>/dev/null | grep -q 'hook input'; then fw_kind="nftables"; fw_active="true"
+  elif have iptables && iptables -S INPUT 2>/dev/null | grep -qv '^-P INPUT ACCEPT'; then fw_kind="iptables"; fw_active="true"
+  fi
+
+  local listening_tcp listening_udp
+  listening_tcp="$(ss -H -lnt 2>/dev/null | awk '{print $4}' | sed 's/.*[:.]//' | sort -un | tr '\n' ' ' | sed 's/ $//')"
+  listening_udp="$(ss -H -lnu 2>/dev/null | awk '{print $4}' | sed 's/.*[:.]//' | sort -un | tr '\n' ' ' | sed 's/ $//')"
+
+  # Services that exist but were not installed by vpnctl (hand-made nodes).
+  # Without this, an agent sees "no backends installed" and installs a second
+  # stack on top of a working one.
+  local foreign_bins="" foreign_units="" foreign_dirs="" b u
+  for b in xray v2ray wg wg-quick hysteria sing-box trojan caddy nginx; do
+    if have "$b"; then foreign_bins="$foreign_bins $b"; fi
+  done
+  if systemd_present; then
+    foreign_units="$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
+      | awk '{print $1}' | grep -Ei 'xray|v2ray|hysteria|wireguard|wg-quick|trojan|sing-box' | tr '\n' ' ')"
+  fi
+  for b in /etc/wireguard /usr/local/etc/xray /etc/xray /etc/hysteria /etc/ssl/hysteria /etc/trojan; do
+    if [ -d "$b" ]; then foreign_dirs="$foreign_dirs $b"; fi
+  done
+
+  local installed_json="" be meta_port meta_active clients active item
+  for be in $BACKENDS; do
+    be_installed "$be" || continue
+    meta_port="$(meta_get "$be" PORT)"
+    meta_active="$(meta_get "$be" SERVICE)"
+    clients="$(client_count "$be")"
+    active="false"
+    if [ -n "$meta_active" ]; then
+      if svc_active "$meta_active"; then active="true"; fi
+    fi
+    item="{\"backend\":$(json_str "$be"),\"port\":${meta_port:-0},\"service\":$(json_str "${meta_active:-}"),\"active\":$active,\"clients\":${clients:-0}}"
+    if [ -z "$installed_json" ]; then installed_json="$item"; else installed_json="$installed_json,$item"; fi
+  done
+
+  if [ "$JSON_OUT" = "1" ]; then
+    cat <<EOF
+{
+  "vpnctl": $(json_str "$VPNCTL_VERSION"),
+  "schema": $VPNCTL_SCHEMA,
+  "host": {
+    "os": $(json_str "$OS_NAME"),
+    "id": $(json_str "$OS_ID"),
+    "version": $(json_str "$OS_VER"),
+    "kernel": $(json_str "$kernel"),
+    "arch": $(json_str "$arch"),
+    "virt": $(json_str "$virt"),
+    "systemd": $sysd,
+    "cpus": $cpus,
+    "mem_mb": $mem_mb
+  },
+  "network": {
+    "public_ipv4": $(json_str "$pub_ip"),
+    "local_ipv4": $(json_str "$local_ip"),
+    "default_iface": $(json_str "$iface"),
+    "ipv6": $inet6,
+    "root_access": $([ "$(id -u)" = 0 ] && printf true || printf false)
+  },
+  "capabilities": {
+    "tun_device": $tun_ok,
+    "wireguard_kernel": $wg_ok,
+    "systemd": $sysd
+  },
+  "firewall": {"kind": $(json_str "$fw_kind"), "active": $fw_active},
+  "foreign": {
+    "binaries": $(json_str "${foreign_bins# }"),
+    "units": $(json_str "${foreign_units# }"),
+    "config_dirs": $(json_str "${foreign_dirs# }"),
+    "note": $(json_str "$([ -n "$(printf '%s%s' "$foreign_bins" "$foreign_units")" ] && printf 'found services vpnctl does not manage; run: vpnctl import hysteria2' || printf '')")
+  },
+  "listening": {"tcp": $(json_str "$listening_tcp"), "udp": $(json_str "$listening_udp")},
+  "backends": [$installed_json]
+}
+EOF
+    return 0
+  fi
+
+  log_step "host"
+  printf '  os       %s\n' "$OS_NAME"
+  printf '  kernel   %s (%s)\n' "$kernel" "$arch"
+  printf '  virt     %s\n' "$virt"
+  printf '  cpu/mem  %s vCPU / %s MB\n' "$cpus" "$mem_mb"
+  printf '  systemd  %s\n' "$([ "$sysd" = "true" ] && echo yes || echo NO)"
+  log_step "network"
+  printf '  public   %s\n' "${pub_ip:-<unknown>}"
+  printf '  local    %s via %s\n' "${local_ip:-?}" "${iface:-?}"
+  printf '  ipv6     %s\n' "$([ "$inet6" = "true" ] && echo yes || echo no)"
+  printf '  firewall %s (%s)\n' "$fw_kind" "$([ "$fw_active" = "true" ] && echo active || echo inactive)"
+  printf '  tcp      %s\n' "${listening_tcp:-<none>}"
+  printf '  udp      %s\n' "${listening_udp:-<none>}"
+  log_step "capabilities"
+  printf '  tun      %s\n' "$([ "$tun_ok" = "true" ] && echo yes || echo NO)"
+  printf '  wg krnl  %s\n' "$([ "$wg_ok" = "true" ] && echo yes || echo NO)"
+  if [ -n "${foreign_bins}${foreign_units}${foreign_dirs}" ]; then
+    log_step "already on this host (not managed by vpnctl)"
+    [ -n "${foreign_bins# }" ] && printf '  binaries  %s\n' "${foreign_bins# }"
+    [ -n "${foreign_units# }" ] && printf '  units     %s\n' "${foreign_units# }"
+    [ -n "${foreign_dirs# }" ] && printf '  configs   %s\n' "${foreign_dirs# }"
+    printf '  -> do not reinstall blindly; adopt it: vpnctl import hysteria2\n'
+  fi
+  log_step "installed backends"
+  if [ -z "$installed_json" ]; then
+    printf '  none\n'
+  else
+    for be in $BACKENDS; do
+      be_installed "$be" || continue
+      printf '  %-14s port %-6s clients %-3s service %s\n' "$be" "$(meta_get "$be" PORT)" "$(client_count "$be")" "$(meta_get "$be" SERVICE)"
+    done
+  fi
+  log_info "next: vpnctl plan wireguard"
+}
+
+# ---------------------------------------------------------------------------
+# plan
+# ---------------------------------------------------------------------------
+cmd_plan() {
+  need_backend "$@"
+  shift || true
+  be_parse_opts "$@"
+  be_print_plan
+}
+
+# ---------------------------------------------------------------------------
+# install
+# ---------------------------------------------------------------------------
+cmd_install() {
+  need_backend "$@"
+  shift || true
+  require_linux
+  detect_os
+  be_parse_opts "$@"
+  if [ "$DRY_RUN" = "1" ]; then
+    log_info "dry run: install would execute the plan below and change nothing now"
+    be_print_plan
+    return 0
+  fi
+  require_root "$CMD $BE_ID"
+  log_step "installing $BE_ID on $OS_NAME"
+  be_install
+  log_step "verifying $BE_ID"
+  if be_verify; then
+    log_ok "$BE_ID is up"
+  else
+    log_err "$BE_ID verification failed"
+    exit 4
+  fi
+  log_step "next steps"
+  printf '  add a client:  vpnctl client %s add --name phone --yes\n' "$BE_ID" >&2
+  printf '  export files:  vpnctl client %s export --name phone\n' "$BE_ID" >&2
+  printf '  open the port: vpnctl harden\n' >&2
+}
+
+# ---------------------------------------------------------------------------
+# client management
+# ---------------------------------------------------------------------------
+cmd_client() {
+  need_backend "$@"
+  shift || true
+  local sub="${1:-list}"; [ "$#" -gt 0 ] && shift
+  local name="" out=""
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --name|-n) name="${2:-}"; shift 2 ;;
+      --out|-o) out="${2:-}"; shift 2 ;;
+      *) die "client: unexpected argument '$1'" ;;
+    esac
+  done
+  case $sub in
+    list)
+      be_installed "$BE_ID" || die "$BE_ID is not installed (run: vpnctl install $BE_ID)"
+      local n
+      if [ "$JSON_OUT" = "1" ]; then
+        local first=1
+        printf '{"backend":%s,"clients":[' "$(json_str "$BE_ID")"
+        for n in $(client_list "$BE_ID"); do
+          [ "$first" = "1" ] || printf ','
+          first=0
+          printf '{"name":%s,"created":%s}' "$(json_str "$n")" "$(json_str "$(client_get "$BE_ID" "$n" CREATED)")"
+        done
+        printf ']}\n'
+        return 0
+      fi
+      printf '%-24s %-18s %s\n' NAME CREATED ADDRESS
+      for n in $(client_list "$BE_ID"); do
+        printf '%-24s %-18s %s\n' "$n" "$(client_get "$BE_ID" "$n" CREATED)" "$(client_get "$BE_ID" "$n" ADDRESS)"
+      done
+      ;;
+    add)
+      if [ "$DRY_RUN" = "1" ]; then
+        log_info "dry run: would create client '$name' on $BE_ID and write artifacts under ~/vpn-clients/$BE_ID/$name"
+        return 0
+      fi
+      need_root "client add"
+      [ -n "$name" ] || die "client add requires --name NAME"
+      if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
+  name="$(validate_client_name "$name")"
+      be_installed "$BE_ID" || die "$BE_ID is not installed (run: vpnctl install $BE_ID)"
+      if client_exists "$BE_ID" "$name"; then
+        log_warn "client '$name' already exists; re-rendering artifacts"
+      else
+        confirm "Create client '$name' on $BE_ID?"
+        be_client_add "$name"
+      fi
+      be_client_export "$name" "$out"
+      ;;
+    remove|rm|revoke)
+      if [ "$DRY_RUN" = "1" ]; then
+        log_info "dry run: would revoke client '$name' from $BE_ID"
+        return 0
+      fi
+      need_root "client remove"
+      [ -n "$name" ] || die "client remove requires --name NAME"
+      if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
+  name="$(validate_client_name "$name")"
+      client_exists "$BE_ID" "$name" || die "no such client: $name"
+      confirm "Revoke client '$name'? Existing configs will stop working."
+      be_client_remove "$name"
+      log_ok "revoked $name"
+      ;;
+    export)
+      [ -n "$name" ] || die "client export requires --name NAME"
+      if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
+  name="$(validate_client_name "$name")"
+      client_exists "$BE_ID" "$name" || die "no such client: $name"
+      be_client_export "$name" "$out"
+      ;;
+    *) die "client: unknown subcommand '$sub' (list|add|remove|export)" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# verify / backup / uninstall / doctor / bootstrap
+# ---------------------------------------------------------------------------
+cmd_verify() {
+  need_backend "$@"
+  shift || true
+  be_installed "$BE_ID" || die "$BE_ID is not installed"
+  be_verify
+}
+
+cmd_backup() {
+  require_root backup
+  [ -d "$VPNCTL_STATE_DIR" ] || die "nothing to back up: $VPNCTL_STATE_DIR is missing"
+  local stamp dest rel
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  dest="$VPNCTL_BACKUP_DIR/manual-$stamp.tar.gz"
+  mkdir -p "$VPNCTL_BACKUP_DIR"
+  local paths=()
+  rel="$(printf '%s' "$VPNCTL_STATE_DIR" | sed 's|^/||')"
+  paths[${#paths[@]}]="$rel"
+  if [ -d /etc/wireguard ]; then paths[${#paths[@]}]="etc/wireguard"; fi
+  if [ -d /usr/local/etc/xray ]; then paths[${#paths[@]}]="usr/local/etc/xray"; fi
+  if [ -d /etc/hysteria ]; then paths[${#paths[@]}]="etc/hysteria"; fi
+  run tar czf "$dest" -C / "${paths[@]}"
+  log_ok "backup written: $dest"
+}
+
+cmd_uninstall() {
+  need_backend "$@"
+  shift || true
+  need_root "uninstall $BE_ID"
+  local purge=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --purge) purge=1; shift ;;
+      *) die "uninstall: unexpected argument '$1'" ;;
+    esac
+  done
+  be_installed "$BE_ID" || die "$BE_ID is not installed"
+  if [ "$DRY_RUN" = "1" ]; then
+    log_info "dry run: would stop $BE_ID, remove its config files, keep $(be_dir "$BE_ID")$([ "$purge" = "1" ] && printf ' unless --purge')"
+    return 0
+  fi
+  confirm "Uninstall $BE_ID? Clients will stop working."
+  be_uninstall
+  if [ "$purge" = "1" ]; then
+    run rm -rf "$(be_dir "$BE_ID")"
+    log_ok "purged state for $BE_ID"
+  else
+    log_info "state kept in $(be_dir "$BE_ID") (use --purge to delete)"
+  fi
+}
+
+cmd_doctor() {
+  local fail=0
+  log_step "vpnctl doctor"
+  printf '  version        %s (schema %s)\n' "$VPNCTL_VERSION" "$VPNCTL_SCHEMA"
+  printf '  script dir     %s\n' "$SCRIPT_DIR"
+  if is_linux; then printf '  platform       Linux %s\n' "$(uname -r)"; else log_warn "not Linux: install/provisioning commands will refuse to run"; fi
+  printf '  user           %s (uid %s)\n' "$(id -un)" "$(id -u)"
+  for c in sed awk grep tar ssh curl; do
+    if have "$c"; then printf '  command %-8s ok\n' "$c"; else printf '  command %-8s MISSING\n' "$c"; fail=1; fi
+  done
+  if systemd_present; then printf '  systemd        ok\n'; else log_warn "systemd not detected: service management is unavailable"; fi
+  local f
+  for f in "$LIB_DIR"/*.sh; do
+    [ -r "$f" ] || { log_err "unreadable library: $f"; fail=1; }
+    bash -n "$f" || { log_err "syntax error: $f"; fail=1; }
+  done
+  bash -n "$SCRIPT_DIR/vpnctl" || { log_err "syntax error in vpnctl"; fail=1; }
+  if [ -d "$VPNCTL_STATE_DIR" ]; then
+    local perms; perms="$(ls -ld "$VPNCTL_STATE_DIR" | awk '{print $1}')"
+    printf '  state dir      %s %s\n' "$VPNCTL_STATE_DIR" "$perms"
+    case $perms in
+      drwx------*) ;;
+      *) log_warn "state dir should be 0700: chmod 700 $VPNCTL_STATE_DIR" ;;
+    esac
+  fi
+  [ "$fail" = "0" ] && log_ok "doctor: no problems found"
+  return "$fail"
+}
+
+cmd_bootstrap() {
+  require_root bootstrap
+  local dest="$VPNCTL_LIB_DIR"
+  log_info "installing vpnctl to $dest"
+  run mkdir -p "$dest"
+  run cp -a "$SCRIPT_DIR/vpnctl" "$dest/vpnctl"
+  run cp -a "$LIB_DIR" "$dest/lib"
+  if [ -d "$SCRIPT_DIR/../assets" ]; then run cp -a "$SCRIPT_DIR/../assets" "$dest/assets"; fi
+  run chmod 755 "$dest/vpnctl"
+  run ln -sf "$dest/vpnctl" "$VPNCTL_BIN_PATH"
+  log_ok "installed: $VPNCTL_BIN_PATH"
+  log_info "verify with: vpnctl doctor"
+}
+
+
+
+# Assets live next to the bundle (dev checkout) or in the installed lib dir.
+asset_dir() {
+  if [ -d "$SCRIPT_DIR/../assets" ]; then printf '%s' "$SCRIPT_DIR/../assets"
+  elif [ -d "$VPNCTL_LIB_DIR/assets" ]; then printf '%s' "$VPNCTL_LIB_DIR/assets"
+  else printf ''; fi
+}
+
+# ---------------------------------------------------------------------------
+# Template support: keep the user's own profile (rule-providers, groups, rules)
+# and splice in the nodes we generated. This is how a house style survives.
+#
+# sub_render_from_template TEMPLATE PROXIES_FILE NAMES_FILE OUTPUT
+#   PROXIES_FILE : ready-made "  - name: ..." YAML lines for the `proxies:` block
+#   NAMES_FILE   : one node name per line, used to refill every proxy-group
+# ---------------------------------------------------------------------------
+sub_render_from_template() {
+  local tpl="$1" proxies="$2" names="$3" out="$4"
+  [ -r "$tpl" ] || die "template not found: $tpl"
+  grep -qE '^proxies:[[:space:]]*$' "$tpl" || die "template has no top-level 'proxies:' line: $tpl"
+  grep -qE '^proxy-groups:[[:space:]]*$' "$tpl" || die "template has no top-level 'proxy-groups:' line: $tpl"
+
+  awk -v pfile="$proxies" -v nfile="$names" '
+    function load_proxies(   line) {
+      while ((getline line < pfile) > 0) print line
+      close(pfile)
+    }
+    function node_list(indent,   line, n, first) {
+      n = 0
+      while ((getline line < nfile) > 0) {
+        if (line == "") continue
+        printf "%s- \"%s\"\n", indent, line
+        n++
+      }
+      close(nfile)
+      if (n > 0) printf "%s- \"DIRECT\"\n", indent
+    }
+    BEGIN { state = 0; skip_list = 0 }
+    # inside the proxies block: drop the old node definitions
+    state == 1 {
+      if ($0 ~ /^[A-Za-z_][A-Za-z0-9_-]*:/) { state = 0 } else { next }
+    }
+    state == 2 {
+      if ($0 ~ /^[A-Za-z_][A-Za-z0-9_-]*:/) { state = 0 }
+      else if ($0 ~ /^([[:space:]]*)proxies:[[:space:]]*$/) {
+        print
+        node_list(substr($0, 1, index($0, "proxies") - 1) "  ")
+        skip_list = 1
+        next
+      }
+      else if (skip_list == 1 && $0 ~ /^[[:space:]]+- /) {
+        # a new group starts with "- name:"; a member item is just a scalar
+        if ($0 ~ /^[[:space:]]+- [A-Za-z_][A-Za-z0-9_-]*:/) { skip_list = 0; print; next }
+        next
+      }
+      else { skip_list = 0; print; next }
+    }
+    state == 0 {
+      if ($0 ~ /^proxies:[[:space:]]*$/) { print; load_proxies(); state = 1; next }
+      if ($0 ~ /^proxy-groups:[[:space:]]*$/) { print; state = 2; next }
+    }
+    { print }
+  ' "$tpl" > "$out"
+}
+
+
+# ---------------------------------------------------------------------------
+# Subscription hosting: a token-guarded static endpoint on this host.
+# The URL is a bearer credential — keep the token long and turn it off when
+# you are not sharing.
+# ---------------------------------------------------------------------------
+SUB_DIR="/etc/vpnctl/sub"
+SUB_UNIT="/etc/systemd/system/vpnctl-sub.service"
+
+sub_serve() {
+  local outdir="$1" want_port="$2" port token host url
+  require_root "sub --serve"
+  . "$LIB_DIR/harden.sh"   # validate_port_number + open_port live there
+  mkdir -p "$SUB_DIR/files"
+  chmod 700 "$SUB_DIR" "$SUB_DIR/files"
+
+  local f
+  for f in clash.yaml v2ray.txt uris.txt; do
+    if [ -f "$outdir/$f" ]; then
+      install_file "$outdir/$f" "$SUB_DIR/files/$f" 0600
+    fi
+  done
+  [ -f "$SUB_DIR/files/clash.yaml" ] || die "nothing to serve: $outdir/clash.yaml missing"
+
+  # Reuse the existing endpoint so a regenerated subscription keeps its URL.
+  local old_token="" old_port=""
+  if [ -r "$SUB_DIR/meta.env" ]; then
+    old_token="$(sed -n 's/^TOKEN=//p' "$SUB_DIR/meta.env" | head -n 1)"
+    old_port="$(sed -n 's/^PORT=//p' "$SUB_DIR/meta.env" | head -n 1)"
+  fi
+  token="${TOKEN_ROTATE:+$(rand_hex 16)}"
+  [ -n "$token" ] || token="$old_token"
+  [ -n "$token" ] || token="$(rand_hex 16)"
+
+  port="$want_port"
+  if [ -z "$port" ] || [ "$port" = "auto" ]; then
+    port="$old_port"
+  fi
+  if [ -z "$port" ]; then
+    port=$(( 20000 + $(printf '%d' "0x$(rand_hex 2)") % 20000 ))
+  fi
+  validate_port_number "$port"
+
+  install_file "$LIB_DIR/sub-server.py" "$VPNCTL_LIB_DIR/sub-server.py" 0755
+
+  local tmp
+  tmp="/tmp/vpnctl-sub-unit.$$"
+  {
+    printf '# installed by vpnctl: subscription endpoint\n'
+    printf '[Unit]\nDescription=vpnctl subscription endpoint\nAfter=network-online.target\n\n'
+    printf '[Service]\nExecStart=/usr/bin/python3 %s/sub-server.py --dir %s/files --token %s --port %s\n' \
+      "$VPNCTL_LIB_DIR" "$SUB_DIR" "$token" "$port"
+    printf 'Restart=on-failure\nRestartSec=3\nDynamicUser=no\nNoNewPrivileges=true\n'
+    printf 'ProtectSystem=strict\nProtectHome=true\nReadOnlyPaths=%s\n\n' "$SUB_DIR"
+    printf '[Install]\nWantedBy=multi-user.target\n'
+  } > "$tmp"
+  install_file "$tmp" "$SUB_UNIT" 0644
+  rm -f "$tmp"
+  run systemctl daemon-reload
+
+  {
+    printf 'PORT=%s\nTOKEN=%s\n' "$port" "$token"
+  } > "$SUB_DIR/meta.env"
+  chmod 600 "$SUB_DIR/meta.env"
+
+  svc_enable_now vpnctl-sub
+  open_port "$port" tcp
+
+  host="$(meta_get "$(first_installed_backend)" PUBLIC_IP 2>/dev/null || true)"
+  if [ -z "$host" ]; then
+    host="$(public_ipv4 || local_ipv4 || printf '<your-vps-ip>')"
+  fi
+  url="http://$host:$port/$token"
+  printf '%s\n' "$url" > "$SUB_DIR/url.txt"
+  chmod 600 "$SUB_DIR/url.txt"
+
+  log_ok "subscription endpoint: $url/clash.yaml"
+  log_warn "this URL is a password: anyone with it can use your nodes"
+  printf '  clash      %s/clash.yaml\n' "$url" >&2
+  printf '  v2ray/ss   %s/v2ray.txt\n' "$url" >&2
+  printf '  plain uris %s/uris.txt\n' "$url" >&2
+  printf '  stop it    vpnctl sub --unserve\n' >&2
+}
+
+first_installed_backend() {
+  local be
+  for be in $BACKENDS; do
+    if be_installed "$be"; then printf '%s' "$be"; return 0; fi
+  done
+  return 1
+}
+
+sub_unserve() {
+  require_root "sub --unserve"
+  svc_stop_disable vpnctl-sub
+  run rm -f "$SUB_UNIT"
+  run systemctl daemon-reload 2>/dev/null || true
+  run rm -rf "$SUB_DIR"
+  log_ok "subscription endpoint stopped and removed"
+}
+
+
+# ---------------------------------------------------------------------------
+# import: take a service that was installed by hand and register it in vpnctl
+# state, so `sub` can include it. It never rewrites the service config.
+# ---------------------------------------------------------------------------
+cmd_import() {
+  local what="${1:-}"
+  case $what in
+    hysteria2|hysteria) import_hysteria2 "${2:-}" ;;
+    "") die "import: specify what to import (hysteria2)" ;;
+    *) die "import: unsupported '$what'" ;;
+  esac
+}
+
+# Print the value of KEY inside the top-level BLOCK of a simple YAML file.
+yaml_block_value() {
+  awk -v block="$2" -v key="$3" '
+    $0 ~ "^" block ":" { inside = 1; next }
+    /^[^[:space:]]/ { inside = 0 }
+    inside && $1 == key":" { sub(/^[[:space:]]*[^:]*:[[:space:]]*/, ""); gsub(/^"|"$/, ""); print; exit }
+  ' "$1"
+}
+
+# Every "key: value" under a nested mapping, e.g. auth.userpass.
+yaml_map_entries() {
+  awk -v block="$2" -v key="$3" '
+    $0 ~ "^" block ":" { inside = 1; next }
+    /^[^[:space:]]/ { inside = 0 }
+    inside && $1 == key":" { submap = 1; next }
+    submap && /^[[:space:]]{4}/ {
+      sub(/^[[:space:]]*/, ""); sub(/:.*/, ""); print
+    }
+    submap && /^[[:space:]]{2}[^[:space:]]/ { submap = 0 }
+  ' "$1"
+}
+
+import_hysteria2() {
+  [ "$DRY_RUN" = "1" ] || require_root "import hysteria2"
+  local cfg="${HYSTERIA_CONFIG:-/etc/hysteria/config.yaml}"
+  [ -r "$cfg" ] || die "hysteria config not found: $cfg"
+
+  local port auth_type pass cert key host sni insecure=1 cert_source="self-signed"
+  port="$(sed -nE 's/^listen:[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$cfg" | head -n 1)"
+  [ -n "$port" ] || port=443
+  auth_type="$(yaml_block_value "$cfg" auth type)"; [ -n "$auth_type" ] || auth_type="password"
+  pass="$(yaml_block_value "$cfg" auth password)"
+  cert="$(yaml_block_value "$cfg" tls cert)"
+  key="$(yaml_block_value "$cfg" tls key)"
+
+  host="${IMPORT_HOST:-$(public_ipv4 || local_ipv4 || true)}"
+  [ -n "$host" ] || die "cannot determine the public address"
+  sni="$host"
+
+  # Prefer the certificate's own name, and only require insecure=1 when the
+  # certificate is self-signed.
+  if [ -r "${cert:-/nonexistent}" ] && have openssl; then
+    local san
+    san="$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null \
+          | grep -o 'DNS:[^,[:space:]]*' | head -n 1 | cut -d: -f2)"
+    [ -n "$san" ] && sni="$san"
+    local issuer subject
+    issuer="$(openssl x509 -in "$cert" -noout -issuer 2>/dev/null)"
+    subject="$(openssl x509 -in "$cert" -noout -subject 2>/dev/null)"
+    if [ -n "$issuer" ] && [ "${issuer#issuer=}" != "${subject#subject=}" ]; then
+      insecure=0; cert_source="provided"
+    fi
+  fi
+
+  local obfs obfs_pass
+  obfs="$(yaml_block_value "$cfg" obfs type)"
+  if [ -n "$obfs" ]; then
+    obfs_pass="$(sed -n 's/^[[:space:]]*password:[[:space:]]*//p' "$cfg" | head -n 1 | tr -d '"')"
+  fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'import hysteria2 (dry run)\n'
+    printf '  config      %s\n' "$cfg"
+    printf '  port        %s/udp\n' "$port"
+    printf '  auth        %s\n' "$auth_type"
+    printf '  sni         %s\n' "$sni"
+    printf '  insecure    %s\n' "$insecure"
+    printf '  obfs        %s\n' "${obfs:-none}"
+    if [ "$auth_type" = "userpass" ]; then
+      printf '  users       %s\n' "$(awk '
+        /^auth:/ {a=1; next} /^[^[:space:]]/ {a=0; u=0}
+        a && /^[[:space:]]+userpass:[[:space:]]*$/ {u=1; next}
+        a && u && /^[[:space:]]+[^:]+:/ {n++}
+        END {print n+0}' "$cfg")"
+    else
+      printf '  password    %s\n' "$([ -n "$pass" ] && printf set || printf MISSING)"
+    fi
+    return 0
+  fi
+
+  meta_init hysteria2
+  meta_set hysteria2 MODE "imported"
+  meta_set hysteria2 AUTH_MODE "$auth_type"
+  meta_set hysteria2 PORT "$port"
+  meta_set hysteria2 PUBLIC_IP "$host"
+  meta_set hysteria2 SNI "$sni"
+  meta_set hysteria2 INSECURE "$insecure"
+  meta_set hysteria2 CERT_SOURCE "$cert_source"
+  meta_set hysteria2 PROTO "udp"
+  meta_set hysteria2 SERVICE "hysteria-server"
+  meta_set hysteria2 CONFIG "$cfg"
+  meta_set hysteria2 CERT_FILE "${cert:-}"
+  meta_set hysteria2 IMPORTED "1"
+  if [ -n "$obfs" ]; then
+    meta_set hysteria2 OBFS "$obfs"
+    meta_set hysteria2 OBFS_PASS "$obfs_pass"
+    meta_set hysteria2 OBFS_ENABLED "1"
+  else
+    meta_set hysteria2 OBFS_ENABLED "0"
+  fi
+
+  local created=0 cname
+  case $auth_type in
+    password)
+      [ -n "$pass" ] || die "could not read auth.password from $cfg"
+      cname="${1:-${IMPORT_CLIENT:-default}}"
+      cname="$(validate_client_name "$cname")"
+      client_write hysteria2 "$cname" "PASSWORD=$pass" \
+        "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "SOURCE=imported"
+      created=1
+      ;;
+    userpass)
+      local line u v
+      while IFS='|' read -r u v; do
+        [ -n "$u" ] || continue
+        validate_client_name "$u" >/dev/null 2>&1 || { log_warn "skipping user '$u' (not a valid client name)"; continue; }
+        client_write hysteria2 "$u" "PASSWORD=$v" \
+          "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" "SOURCE=imported"
+        created=$((created + 1))
+      done <<USERS
+$(awk '
+  /^auth:/ {a=1; next}
+  /^[^[:space:]]/ {a=0; u=0}
+  a && /^[[:space:]]+userpass:[[:space:]]*$/ {u=1; next}
+  a && u && /^[[:space:]]+[^:]+:/ {
+    line=$0; sub(/^[[:space:]]+/, "", line)
+    i=index(line, ":"); if (i > 0) {
+      k=substr(line,1,i-1); v=substr(line,i+1); sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v)
+      print k "|" v
+    }
+    next
+  }
+' "$cfg")
+USERS
+      [ "$created" -gt 0 ] || die "auth.type is userpass but no users were parsed from $cfg"
+      ;;
+    *) die "unsupported auth type '$auth_type' in $cfg" ;;
+  esac
+
+  log_ok "imported hysteria2: :$port/udp, auth=$auth_type, clients=$created, sni=$sni"
+  log_warn "the service was not modified; this only records what is already running"
+  printf '  next: vpnctl sub --name %s\n' "${1:-$(client_list hysteria2 | head -n 1)}" >&2
+}
+
+# ---------------------------------------------------------------------------
+# sub: one subscription file containing every installed backend
+# ---------------------------------------------------------------------------
+cmd_sub() {
+  local name="default" outdir="" mixed_port="7890" global_mode=0 template=""
+  local serve=0 unserve=0 serve_port=""
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --name|-n) name="${2:-}"; shift 2 ;;
+      --out|-o) outdir="${2:-}"; shift 2 ;;
+      --mixed-port) mixed_port="${2:-}"; shift 2 ;;
+      --global|--no-cn-direct) global_mode=1; shift ;;
+      --template|-t) template="${2:-}"; shift 2 ;;
+      --serve) serve=1; shift ;;
+      --unserve) unserve=1; shift ;;
+      --rotate-token) TOKEN_ROTATE=1; shift ;;
+      --serve-port) serve_port="${2:-}"; shift 2 ;;
+      -h|--help)
+        cat <<'EOF'
+sub options:
+  --name, -n NAME     client name to export (default: default)
+  --out, -o DIR       output directory (default: ~/vpn-clients/_subscriptions/<name>)
+  --mixed-port N      mixed-port written into clash.yaml (default 7890)
+  --global            full tunnel: proxy everything (default: mainland services stay direct)
+  -t, --template FILE  splice the generated nodes into YOUR profile instead of the built-in one
+                       (rule-providers, proxy-groups and rules are preserved)
+      --serve           also host the files at http://IP:PORT/<token>/ (bearer URL)
+      --serve-port N    fixed port for --serve (default: random 20000-39999)
+      --unserve         stop and remove the subscription endpoint
+      --rotate-token    force a new token (invalidates the old link)
+EOF
+        return 0 ;;
+      *) die "sub: unknown option '$1'" ;;
+    esac
+  done
+  if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
+  name="$(validate_client_name "$name")"
+  if [ -z "$outdir" ]; then outdir="${HOME:-/root}/vpn-clients/_subscriptions/$name"; fi
+  mkdir -p "$outdir"
+  chmod 700 "$outdir" 2>/dev/null || true
+
+  local yaml="$outdir/clash.yaml" uris="$outdir/uris.txt"
+  local names="" be uri count=0
+
+  # Nodes are collected in a buffer first: with --template they are spliced
+  # into the user's own profile, otherwise they build the default one.
+  local pfile nfile
+  pfile="${TMPDIR:-/tmp}/vpnctl-proxies.$$"
+  nfile="${TMPDIR:-/tmp}/vpnctl-names.$$"
+  : > "$pfile"
+  : > "$nfile"
+
+  : > "$uris"
+  for be in $BACKENDS; do
+    be_installed "$be" || continue
+    client_exists "$be" "$name" || continue
+    load_backend "$be"
+    case $be in
+      wireguard)
+        local v4 priv pub psk paddr
+        v4="$(meta_get wireguard PUBLIC_IP)"; priv="$(client_get wireguard "$name" PRIVKEY)"
+        pub="$(meta_get wireguard PUBKEY)"; psk="$(client_get wireguard "$name" PSK)"
+        paddr="$(client_get wireguard "$name" ADDRESS)"
+        [ -n "$priv" ] || continue
+        {
+          printf '  - name: %s\n' "$(json_str "wg-$name")"
+          printf '    type: wireguard\n'
+          printf '    server: %s\n    port: %s\n' "$(json_str "$v4")" "$(meta_get wireguard PORT)"
+          printf '    private-key: %s\n' "$(json_str "$priv")"
+          printf '    public-key: %s\n' "$(json_str "$pub")"
+          if [ -n "$psk" ]; then printf '    preshared-key: %s\n' "$(json_str "$psk")"; fi
+          printf '    ip: %s\n' "$(json_str "$paddr/32")"
+          printf '    dns: ["1.1.1.1", "8.8.8.8"]\n    udp: true\n    mtu: %s\n' "$(meta_get wireguard MTU)"
+        } >> "$pfile"
+        names="$names wg-$name"
+        count=$((count + 1))
+        ;;
+      xray-reality)
+        {
+          printf '  - name: %s\n' "$(json_str "reality-$name")"
+          printf '    type: vless\n'
+          printf '    server: %s\n    port: %s\n' "$(json_str "$(meta_get xray-reality PUBLIC_IP)")" "$(meta_get xray-reality PORT)"
+          printf '    uuid: %s\n' "$(json_str "$(client_get xray-reality "$name" UUID)")"
+          printf '    network: tcp\n    tls: true\n    udp: true\n'
+          printf '    flow: %s\n' "$(json_str "$(meta_get xray-reality FLOW)")"
+          printf '    servername: %s\n' "$(json_str "$(meta_get xray-reality SNI)")"
+          printf '    client-fingerprint: %s\n' "$(json_str "$(meta_get xray-reality FP)")"
+          printf '    reality-opts:\n      public-key: %s\n      short-id: %s\n' \
+            "$(json_str "$(meta_get xray-reality PUBKEY)")" "$(json_str "$(meta_get xray-reality SHORT_ID)")"
+        } >> "$pfile"
+        uri="$(xr_client_uri "$name")"
+        printf '%s\n' "$uri" >> "$uris"
+        names="$names reality-$name"
+        count=$((count + 1))
+        ;;
+      ss2022)
+        {
+          printf '  - name: %s\n' "$(json_str "ss2022-$name")"
+          printf '    type: ss\n'
+          printf '    server: %s\n    port: %s\n' "$(json_str "$(meta_get ss2022 PUBLIC_IP)")" "$(meta_get ss2022 PORT)"
+          printf '    cipher: %s\n' "$(json_str "$(meta_get ss2022 SS_METHOD)")"
+          printf '    password: %s\n' "$(json_str "$(client_get ss2022 "$name" PSK):$(meta_get ss2022 SS_SERVER_PSK)")"
+          printf '    udp: true\n'
+        } >> "$pfile"
+        printf '%s\n' "$(xr_client_uri "$name")" >> "$uris"
+        names="$names ss2022-$name"
+        count=$((count + 1))
+        ;;
+      hysteria2)
+        {
+          printf '  - name: %s\n' "$(json_str "hy2-$name")"
+          printf '    type: hysteria2\n'
+          printf '    server: %s\n    port: %s\n' "$(json_str "$(meta_get hysteria2 PUBLIC_IP)")" "$(meta_get hysteria2 PORT)"
+          printf '    password: %s\n' "$(json_str "$(client_get hysteria2 "$name" PASSWORD)")"
+          printf '    sni: %s\n' "$(json_str "$(meta_get hysteria2 SNI)")"
+          if [ "$(meta_get hysteria2 CERT_SOURCE)" = "acme" ] || [ "$(meta_get hysteria2 CERT_SOURCE)" = "provided" ]; then
+            printf '    skip-cert-verify: false\n'
+          else
+            printf '    skip-cert-verify: true\n'
+          fi
+          if [ "$(meta_get hysteria2 OBFS_ENABLED)" != "0" ]; then
+            printf '    obfs: %s\n    obfs-password: %s\n' \
+              "$(json_str "$(meta_get hysteria2 OBFS)")" "$(json_str "$(meta_get hysteria2 OBFS_PASS)")"
+          fi
+        } >> "$pfile"
+        printf '%s\n' "$(hy_client_uri "$name" "$(meta_get hysteria2 PUBLIC_IP)")" >> "$uris"
+        names="$names hy2-$name"
+        count=$((count + 1))
+        ;;
+      trojan)
+        {
+          printf '  - name: %s\n' "$(json_str "trojan-$name")"
+          printf '    type: trojan\n'
+          printf '    server: %s\n    port: %s\n' "$(json_str "$(meta_get trojan DOMAIN)")" "$(meta_get trojan PORT)"
+          printf '    password: %s\n' "$(json_str "$(client_get trojan "$name" PASSWORD)")"
+          printf '    sni: %s\n' "$(json_str "$(meta_get trojan DOMAIN)")"
+          printf '    alpn: [%s]\n' "$(json_str "$(meta_get trojan ALPN)")"
+          printf '    udp: true\n'
+          if [ "$(meta_get trojan CERT_SOURCE)" = "self-signed" ]; then
+            printf '    skip-cert-verify: true\n'
+          fi
+        } >> "$pfile"
+        printf '%s\n' "$(xr_client_uri "$name")" >> "$uris"
+        names="$names trojan-$name"
+        count=$((count + 1))
+        ;;
+    esac
+  done
+
+  if [ "$count" = "0" ]; then
+    die "no installed backend has a client named '$name'; create one first: vpnctl client <backend> add --name $name --yes"
+  fi
+
+  # --- assemble -----------------------------------------------------------
+  if [ -n "$template" ]; then
+    for n in $names; do printf '%s\n' "$n" >> "$nfile"; done
+    sub_render_from_template "$template" "$pfile" "$nfile" "$yaml"
+    log_info "kept your rules from $template; only the node list and group members were replaced"
+  else
+    {
+      printf '# Generated by vpnctl %s on %s — contains live credentials, keep it private\n' \
+        "$VPNCTL_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf '# Import this file whole: the DNS block stops queries from leaking around\n'
+      printf '# the tunnel, which is what usually makes ChatGPT behave inconsistently.\n'
+      printf 'mixed-port: %s\nallow-lan: false\nmode: rule\nlog-level: info\nipv6: false\n' "$mixed_port"
+      printf 'dns:\n'
+      printf '  enable: true\n  ipv6: false\n'
+      printf '  enhanced-mode: fake-ip\n  fake-ip-range: 198.18.0.1/16\n'
+      printf '  default-nameserver: ["223.5.5.5", "1.1.1.1"]\n'
+      printf '  # domestic resolvers stay reachable inside China; proxied domains are\n'
+      printf '  # resolved at the exit node anyway, so poisoning does not matter\n'
+      printf '  nameserver: ["223.5.5.5", "119.29.29.29"]\n'
+      printf 'proxies:\n'
+    } > "$yaml"
+    cat "$pfile" >> "$yaml"
+  # --- groups and rules ---------------------------------------------------
+  {
+    printf 'proxy-groups:\n'
+    printf '  - name: PROXY\n    type: select\n    proxies: ['
+    local sep=""
+    for n in $names; do printf '%s%s' "$sep" "$(json_str "$n")"; sep=", "; done
+    printf ']\n'
+    printf 'rules:\n'
+    printf '# 1) sites that must always use the exit, even if a later rule would\n'
+    printf '#    send them direct\n'
+    printf '  - DOMAIN-SUFFIX,openai.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,chatgpt.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,oaistatic.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,oaiusercontent.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,youtube.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,googlevideo.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,ytimg.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,github.com,PROXY\n'
+    printf '  - DOMAIN-SUFFIX,githubusercontent.com,PROXY\n'
+    if [ "$global_mode" = "1" ]; then
+      printf '# full tunnel: everything below goes through the exit\n'
+      printf '  - MATCH,PROXY\n'
+    else
+      printf '# 2) mainland services stay on the domestic route (DeepSeek, WeChat, ...)\n'
+      printf '# generated from assets/cn-direct.txt\n'
+      local cnlist; cnlist="$(asset_dir)/cn-direct.txt"
+      if [ -r "$cnlist" ]; then
+        while read -r d; do
+          case $d in ''|'#'*) continue ;; esac
+          printf '  - DOMAIN-SUFFIX,%s,DIRECT\n' "$d"
+        done < "$cnlist"
+      else
+        printf '  # (cn-direct.txt not found; relying on GEOSITE/GEOIP below)\n'
+      fi
+      printf '# 3) safety net when the client ships geodata\n'
+      printf '  - GEOSITE,cn,DIRECT\n'
+      printf '  - GEOIP,CN,DIRECT\n'
+      printf '# 4) everything else through the tunnel\n'
+      printf '  - MATCH,PROXY\n'
+    fi
+  } >> "$yaml"
+  fi
+  rm -f "$pfile" "$nfile"
+
+  # --- base64 subscription (v2rayN / Shadowrocket) ------------------------
+  local b64="$outdir/v2ray.txt"
+  if have base64; then
+    tr -d '\r' < "$uris" | base64 | tr -d '\n' > "$b64"
+    printf '\n' >> "$b64"
+  fi
+  chmod 600 "$yaml" "$uris" 2>/dev/null || true
+  [ -f "$b64" ] && chmod 600 "$b64"
+
+  {
+    printf 'client:  %s\nnodes:   %s\nmode:    %s\n\n' "$name" "$count" \
+      "$([ "$global_mode" = "1" ] && printf 'global (everything proxied)' || printf 'split (mainland direct, rest proxied)')"
+    printf 'clash.yaml  import into Clash Verge / Mihomo (Profiles -> Import -> File)\n'
+    printf 'v2ray.txt   base64 subscription: v2rayN/NG, Shadowrocket (import from file or host it)\n'
+    printf 'uris.txt    plain URI list, one node per line\n\n'
+    printf 'These files contain live credentials. Keep them 600 and never commit them.\n'
+    printf 'To share as a URL, host the files behind TLS auth (or a Cloudflare Worker);\n'
+    printf 'a bare http server turns this file into a public credential.\n'
+  } > "$outdir/info.txt"
+
+  if [ "$serve" = "1" ]; then
+    sub_serve "$outdir" "$serve_port"
+  fi
+
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"client":%s,"nodes":%s,"dir":%s,"files":["clash.yaml","v2ray.txt","uris.txt"]}\n' \
+      "$(json_str "$name")" "$count" "$(json_str "$outdir")"
+  else
+    printf 'subscription for %s: %s node(s)\n' "$name" "$count"
+    printf '  %s\n' "$yaml" "$uris"
+    [ -f "$b64" ] && printf '  %s\n' "$b64"
+    printf '  %s\n' "$outdir/info.txt"
+  fi
+}
+
+
+# Small hosts (512MB plans are common) need swap or the install can OOM.
+ensure_swap() {
+  [ "${NO_SWAP:-0}" = "1" ] && return 0
+  local mem_mb
+  mem_mb="$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || printf 0)"
+  [ "$mem_mb" -ge 1000 ] && return 0
+  if [ -f /swapfile ] && swapon --show 2>/dev/null | grep -q '/swapfile'; then
+    log_debug "swap already active"
+    return 0
+  fi
+  log_info "only ${mem_mb}MB of RAM: adding a 512MB swap file"
+  if [ ! -f /swapfile ]; then
+    run fallocate -l 512M /swapfile 2>/dev/null || run dd if=/dev/zero of=/swapfile bs=1M count=512 2>/dev/null
+    run chmod 600 /swapfile
+    run mkswap /swapfile >/dev/null
+  fi
+  run swapon /swapfile 2>/dev/null || true
+  if ! grep -qs '^/swapfile' /etc/fstab; then
+    if [ "$DRY_RUN" = "0" ]; then printf '/swapfile none swap sw 0 0\n' >> /etc/fstab; fi
+  fi
+  log_ok "swap enabled (512MB)"
+}
+
+# ---------------------------------------------------------------------------
+# up: the whole deployment in one command
+# ---------------------------------------------------------------------------
+UP_BACKEND="auto"
+UP_CLIENT="default"
+UP_PORT=""
+UP_SNI=""
+UP_HARDEN_SSH=0
+UP_NO_CLIENT=0
+UP_ALL=0
+UP_NO_CHECK=0
+UP_CN=0
+UP_DOMAIN=""
+UP_ACME_EMAIL=""
+UP_SELF_SIGNED=0
+
+
+# Deploy REALITY + Hysteria2 (+ Trojan when a domain is available) and hand
+# back a single subscription containing all of them.
+up_all() {
+  if [ "$DRY_RUN" = "1" ]; then
+    local extra=""
+    if [ -n "$UP_DOMAIN" ]; then extra=" + trojan (8443/tcp)"; else extra=" [trojan skipped: pass --domain]"; fi
+    log_info "dry run: would deploy REALITY (443/tcp) + Hysteria2 (443/udp)$extra"
+    UP_BACKEND="xray-reality"; load_backend xray-reality; be_parse_opts --port 443; be_print_plan
+    return 0
+  fi
+  require_root "up --all"
+  confirm "Deploy REALITY + Hysteria2$([ -n "$UP_DOMAIN" ] && printf ' + Trojan') on this host and build one subscription?"
+  . "$LIB_DIR/harden.sh"
+
+  local client; client="$(validate_client_name "$UP_CLIENT")"
+
+  up_all_one xray-reality 443
+  up_all_one hysteria2 443
+  if [ -n "$UP_DOMAIN" ]; then
+    if [ "$UP_SELF_SIGNED" = "1" ]; then
+      up_all_one trojan 8443 --domain "$UP_DOMAIN" --self-signed
+    elif [ -n "$UP_ACME_EMAIL" ]; then
+      up_all_one trojan 8443 --domain "$UP_DOMAIN" --acme-email "$UP_ACME_EMAIL"
+    else
+      up_all_one trojan 8443 --domain "$UP_DOMAIN"
+    fi
+  else
+    log_warn "no --domain given: skipping Trojan (it needs a real TLS name to be useful)"
+  fi
+
+  log_step "subscription"
+  if [ "$UP_NO_CLIENT" = "1" ]; then
+    log_info "--no-client: skipping subscription"
+    return 0
+  fi
+  cmd_sub --name "$client"
+  if [ "$UP_NO_CHECK" = "0" ] && have curl; then
+    log_step "site reachability"
+    . "$LIB_DIR/sites.sh"
+    cmd_check_sites --timeout 8 || log_warn "some sites are not reachable from this IP (see above)"
+  fi
+  log_ok "all nodes are up; import the files printed above"
+}
+
+up_all_one() {
+  local be="$1" port="$2"; shift 2
+  load_backend "$be"
+  if [ "$#" -gt 0 ]; then be_parse_opts --port "$port" "$@"; else be_parse_opts --port "$port"; fi
+  log_step "install $be on $port"
+  ensure_swap
+  be_install
+  harden_open_vpn_ports
+  if [ "$UP_NO_CLIENT" = "0" ]; then
+    local client; client="$(validate_client_name "$UP_CLIENT")"
+    if client_exists "$be" "$client"; then
+      log_info "client '$client' exists on $be; re-rendering"
+    else
+      be_client_add "$client"
+    fi
+    be_client_export "$client" >/dev/null
+  fi
+  be_verify >&2 || log_warn "$be verification reported a problem; the subscription still includes it"
+}
+
+cmd_up() {
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --backend|-b) UP_BACKEND="${2:-}"; shift 2 ;;
+      --client|-c)  UP_CLIENT="${2:-}"; shift 2 ;;
+      --port|-p)    UP_PORT="${2:-}"; shift 2 ;;
+      --sni)        UP_SNI="${2:-}"; shift 2 ;;
+      --ssh-harden) UP_HARDEN_SSH=1; shift ;;
+      --no-client)  UP_NO_CLIENT=1; shift ;;
+      --all)        UP_ALL=1; shift ;;
+      --no-check)   UP_NO_CHECK=1; shift ;;
+      --cn)         UP_CN=1; shift ;;
+      --domain)     UP_DOMAIN="${2:-}"; shift 2 ;;
+      --acme-email) UP_ACME_EMAIL="${2:-}"; shift 2 ;;
+      --self-signed) UP_SELF_SIGNED=1; shift ;;
+      -h|--help)    up_help; return 0 ;;
+      *) die "up: unknown option '$1' (see: vpnctl help)" ;;
+    esac
+  done
+
+  if [ "$UP_BACKEND" = "all" ]; then UP_ALL=1; fi
+
+  require_linux
+  detect_os
+
+  if [ "$UP_ALL" = "1" ]; then
+    up_all
+    return 0
+  fi
+
+  # --- choose a backend from what the host can actually do -----------------
+  if [ "$UP_BACKEND" = "auto" ] && [ "$UP_CN" = "1" ]; then
+    # Clients on mainland networks get UDP throttled or blocked often enough
+    # that a TCP/443 camouflage node is the better first choice.
+    UP_BACKEND="xray-reality"
+    log_info "--cn: choosing REALITY on TCP/443 (UDP is unreliable from mainland networks)"
+  elif [ "$UP_BACKEND" = "auto" ]; then
+    local virt tun wgok
+    virt="$(virt_kind)"
+    tun="$(json_bool test -c /dev/net/tun)"
+    wgok="$(json_bool sh -c 'modprobe -n wireguard >/dev/null 2>&1 || test -d /sys/module/wireguard')"
+    case $virt in
+      lxc|lxd|openvz|docker) UP_BACKEND="xray-reality" ;;
+      *)
+        if [ "$tun" = "true" ] && [ "$wgok" = "true" ]; then
+          UP_BACKEND="wireguard"
+        elif port_listening 443 tcp; then
+          UP_BACKEND="hysteria2"
+        else
+          UP_BACKEND="xray-reality"
+        fi
+        ;;
+    esac
+    log_info "auto-selected backend: $UP_BACKEND (virt=$virt tun=$tun wg=${wgok})"
+  fi
+
+  case $UP_BACKEND in
+    wireguard|xray-reality|ss2022|hysteria2) ;;
+    *) die "up: unknown backend '$UP_BACKEND'" ;;
+  esac
+
+  load_backend "$UP_BACKEND"
+
+  # translate the generic flags into the backend's own vocabulary
+  local opts=()
+  if [ -n "$UP_PORT" ]; then opts[${#opts[@]}]="--port"; opts[${#opts[@]}]="$UP_PORT"; fi
+  case $UP_BACKEND in
+    xray-reality|hysteria2)
+      if [ -n "$UP_SNI" ]; then opts[${#opts[@]}]="--sni"; opts[${#opts[@]}]="$UP_SNI"; fi ;;
+  esac
+  if [ "${#opts[@]}" -gt 0 ]; then be_parse_opts "${opts[@]}"; else be_parse_opts; fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    log_info "dry run: one-shot deployment would run probe -> install -> firewall -> client -> verify"
+    be_print_plan
+    return 0
+  fi
+
+  require_root "up"
+  if [ "$UP_NO_CLIENT" = "1" ]; then
+    confirm "Install $UP_BACKEND and open its port on this host?"
+  else
+    confirm "Install $UP_BACKEND, open its port, and create client '$UP_CLIENT'?"
+  fi
+  . "$LIB_DIR/harden.sh"
+
+  log_step "1/5 install $UP_BACKEND"
+  ensure_swap
+  be_install || die "install failed; nothing else was changed"
+
+  log_step "2/5 firewall"
+  harden_open_vpn_ports
+  if [ "$UP_HARDEN_SSH" = "1" ]; then
+    harden_ssh
+  else
+    log_info "SSH left untouched (pass --ssh-harden to also harden sshd)"
+  fi
+
+  local client_dir=""
+  if [ "$UP_NO_CLIENT" = "0" ]; then
+    log_step "3/5 client $UP_CLIENT"
+    UP_CLIENT="$(validate_client_name "$UP_CLIENT")"
+    if client_exists "$UP_BACKEND" "$UP_CLIENT"; then
+      log_info "client '$UP_CLIENT' exists; re-rendering artifacts"
+    else
+      be_client_add "$UP_CLIENT"
+    fi
+    be_client_export "$UP_CLIENT" >/dev/null
+    client_dir="${HOME:-/root}/vpn-clients/$UP_BACKEND/$UP_CLIENT"
+  else
+    log_step "3/5 client (skipped: --no-client)"
+  fi
+
+  log_step "4/5 verify"
+  local vres=0
+  # Keep stdout pure JSON when --json is on: verify's own report goes to stderr.
+  if [ "$JSON_OUT" = "1" ]; then
+    be_verify >&2 || vres=$?
+  else
+    be_verify || vres=$?
+  fi
+
+  log_step "5/6 subscription"
+  if [ "$UP_NO_CLIENT" = "0" ]; then
+    cmd_sub --name "$UP_CLIENT" || log_warn "subscription generation failed; client files are still in place"
+  else
+    log_info "skipped (--no-client)"
+  fi
+
+  log_step "6/6 summary"
+  local port; port="$(meta_get "$UP_BACKEND" PORT)"
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"backend":%s,"port":%s,"client":%s,"client_dir":%s,"ok":%s}\n' \
+      "$(json_str "$UP_BACKEND")" "${port:-0}" "$(json_str "$UP_CLIENT")" \
+      "$(json_str "$client_dir")" "$([ "$vres" = "0" ] && printf true || printf false)"
+  else
+    printf '  backend   %s\n' "$UP_BACKEND"
+    printf '  port      %s/%s\n' "$port" "$(meta_get "$UP_BACKEND" PROTO)"
+    if [ -n "$client_dir" ]; then
+      printf '  client    %s\n' "$client_dir"
+      printf '  import    see info.txt in that directory\n'
+    fi
+    printf '  next      vpnctl harden --ssh-port N   (optional SSH hardening)\n'
+  fi
+  [ "$vres" = "0" ] || { log_err "verification failed (exit 4)"; exit 4; }
+  if [ "$UP_NO_CHECK" = "0" ] && have curl; then
+    log_step "site reachability"
+    . "$LIB_DIR/sites.sh"
+    cmd_check_sites --timeout 8 || log_warn "some sites are not reachable from this IP (see above)"
+  fi
+  log_ok "deployment complete"
+}
+
+up_help() {
+  cat <<EOF
+up options (one-shot deployment):
+  --backend, -b NAME   wireguard | xray-reality | ss2022 | hysteria2 | auto (default)
+  --client, -c NAME    client to create and export (default: default)
+  --port, -p N         override the backend's default port
+  --sni HOST           REALITY camouflage name / Hysteria2 TLS name
+  --all                deploy REALITY + Hysteria2 (+ Trojan with --domain) and build one subscription
+  --domain HOST        domain for Trojan (enables the TLS node)
+  --acme-email ADDR    Let's Encrypt registration email for Trojan
+  --self-signed        use a self-signed cert for Trojan instead of ACME
+  --cn                 clients are in mainland China: prefer REALITY on TCP/443 (UDP is often throttled)
+  --no-check           skip the chatgpt/youtube/github reachability check at the end
+  --ssh-harden         also harden sshd (default: firewall only)
+  --no-client          provision only, do not create a client
+  --dry-run            print the full plan and exit
+
+auto selection: WireGuard when TUN + kernel module exist; REALITY when the host
+is a container or UDP is unusable; Hysteria2 when TCP/443 is taken.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# dispatch
+# ---------------------------------------------------------------------------
+case $CMD in
+  probe)     cmd_probe ;;
+  plan)      cmd_plan "$@" ;;
+  install)   cmd_install "$@" ;;
+  up)        cmd_up "$@" ;;
+  client)    cmd_client "$@" ;;
+  verify)    cmd_verify "$@" ;;
+  harden)    . "$LIB_DIR/harden.sh"; cmd_harden "$@" ;;
+  sub)       cmd_sub "$@" ;;
+  check-sites|sites) . "$LIB_DIR/sites.sh"; cmd_check_sites "$@" ;;
+  import)    cmd_import "$@" ;;
+  backup)    cmd_backup ;;
+  uninstall) cmd_uninstall "$@" ;;
+  doctor)    cmd_doctor ;;
+  bootstrap) cmd_bootstrap ;;
+  help)      usage ;;
+  *)         usage >&2; die "unknown command: $CMD" ;;
+esac

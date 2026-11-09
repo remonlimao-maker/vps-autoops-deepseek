@@ -1,0 +1,15 @@
+description = "在 VPS 上部署或排障 VPN（WireGuard / Xray REALITY / SS2022 / Hysteria2）"
+prompt = """
+使用 vps-vpn-setup 这套 Skill 完成 VPS VPN 任务。用户参数：{{args}}
+
+先读取 vps-vpn-setup/SKILL.md，严格遵守其中的「硬性安全规则」与「标准流程」：
+
+1. 只读先行：bash vps-vpn-setup/scripts/vpnctl probe --json，然后 plan <backend>。
+2. 远程主机可用 bash vps-vpn-setup/scripts/remote.sh push|run <target> ...。
+3. 流程：probe → plan → install --yes → harden --no-ssh → client add --yes → verify --json。
+4. 不要输出私钥/UUID/密码；客户端配置写到文件并告知路径。
+5. SSH 端口变更必须使用 vpnctl harden --ssh-port N（带 5 分钟自动回滚），确认后再 --confirm。
+6. 完成标准是 verify --json 的 ok:true。
+
+最后汇报：后端与端口、客户端文件与导入方式、verify 的真实输出、回滚命令。
+"""

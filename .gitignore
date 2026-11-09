@@ -1,0 +1,28 @@
+# 本地凭据与状态：绝对不要提交
+vpn-clients/
+.vpsctl/
+.dsh/
+.agents/
+*.key
+*.pem
+*.p12
+*.env
+.env.*
+
+# 订阅产物
+**/clash.yaml
+**/v2ray.txt
+**/uris.txt
+!vps-vpn-setup/assets/profile-template.example.yaml
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.log
+
+# 备份
+*.tar.gz
+backups/

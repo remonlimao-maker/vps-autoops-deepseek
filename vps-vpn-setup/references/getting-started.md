@@ -120,6 +120,58 @@ mihomo -d . -f config.yaml
 3. 回到首页，点刚添加的订阅 → 选节点 → 打开顶部开关
 4. 首次连接会请求添加 VPN 配置，点 **允许**
 
+## 手机端：sing-box（推荐，免费）
+
+sing-box 是开源客户端，iOS/Android 都有。本项目会**直接生成好一份 `singbox.json`**，
+里面已经包含节点、TUN 接管、国内直连规则，不用手填任何参数。
+
+### 先拿到配置文件
+
+两种方式任选：
+
+1. **文件**：服务器上的 `~/vpn-clients/_subscriptions/<名字>/singbox.json`，用 AirDrop / 微信文件传输 / 数据线传到手机
+2. **链接**（订阅服务开启时）：`http://<IP>:<端口>/<token>/singbox.json`，在 App 里粘贴导入
+
+### iOS
+
+1. App Store 搜索 **sing-box**（免费）安装
+2. 打开 → **配置 / Profiles** → 右上 **+** → **从文件导入**，选传进来的 `singbox.json`
+   （或选 **从 URL 导入**，粘贴订阅链接）
+3. 点该配置 → 启用
+4. 回到首页，打开开关 → 系统会请求添加 VPN 配置，点 **允许**
+5. 浏览器打开 `https://ipinfo.io` 验证出口
+
+### Android
+
+1. 装 **sing-box for Android**（GitHub 或应用商店）
+2. 同样「配置 → 新建 → 从文件/URL 导入」
+3. 授权 VPN、启动
+
+### 这份 JSON 里有什么
+
+```json
+{
+  "inbounds":  [{"type": "tun", "auto_route": true}],        // 接管全部流量
+  "outbounds": [{"type": "vless", "tag": "reality-phone"},  // 你的节点（可能多个）
+                {"type": "direct", "tag": "direct"}],
+  "route":     {"rules": [{"domain_suffix": ["deepseek.com", ...], "outbound": "direct"}],
+                "final": "reality-phone"}                   // 国内直连，其余走节点
+}
+```
+
+**要求 sing-box 1.10+**（`tun.address` 字段的新写法）。老版本会报配置错误，升级即可。
+
+### 想换节点 / 换规则
+
+在服务器上重新生成：
+
+```bash
+vpnctl singbox --name phone --out ~/vps-clients/singbox.json    # 指定节点名
+vpnctl singbox --name phone --global                            # 不做国内分流
+```
+
+再传到手机重新导入即可。
+
 ## Android
 
 1. 安装 **Clash Meta for Android**（GitHub 下载 APK）

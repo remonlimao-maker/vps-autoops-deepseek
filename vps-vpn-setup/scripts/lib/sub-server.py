@@ -15,11 +15,12 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ALLOWED = {"clash.yaml", "v2ray.txt", "uris.txt"}
+ALLOWED = {"clash.yaml", "v2ray.txt", "uris.txt", "singbox.json"}
 MIME = {
     "clash.yaml": "text/yaml; charset=utf-8",
     "v2ray.txt": "text/plain; charset=utf-8",
     "uris.txt": "text/plain; charset=utf-8",
+    "singbox.json": "application/json; charset=utf-8",
 }
 
 

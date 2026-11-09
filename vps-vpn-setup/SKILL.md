@@ -261,6 +261,7 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 | `vpnctl sub --name N [--out DIR] [--template FILE] [--serve]` | 汇成一份订阅；`--template` 套用你的规则，`--serve` 同时给出订阅**链接** |
 | `vpnctl sub --unserve` | 关闭订阅链接服务 |
 | `vpnctl import hysteria2 [NAME]` | 把**手装**的 Hysteria2 纳入管理（不改服务） |
+| `vpnctl singbox --name N [--out F] [--global]` | 生成手机端 sing-box 用的完整 JSON（含 TUN 与国内分流） |
 | `vpnctl plan <be>` | 打印将要执行的动作（只读） |
 | `vpnctl install <be> [opts]` | 安装或重配后端（幂等） |
 | `vpnctl client <be> add --name N` | 新增客户端并导出 |
@@ -402,7 +403,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 270 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 275 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

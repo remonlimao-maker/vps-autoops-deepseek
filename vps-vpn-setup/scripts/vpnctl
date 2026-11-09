@@ -610,7 +610,7 @@ sub_serve() {
   chmod 700 "$SUB_DIR" "$SUB_DIR/files"
 
   local f
-  for f in clash.yaml v2ray.txt uris.txt; do
+  for f in clash.yaml v2ray.txt uris.txt singbox.json; do
     if [ -f "$outdir/$f" ]; then
       install_file "$outdir/$f" "$SUB_DIR/files/$f" 0600
     fi
@@ -1117,7 +1117,8 @@ EOF
     printf 'v2ray.txt   base64 subscription: v2rayN/NG, Shadowrocket (import from file or host it)\n'
     printf 'uris.txt    plain URI list, one node per line\n\n'
     printf '第一次使用？\n'
-    printf '  1. 装客户端：Windows/macOS/Linux -> Clash Verge Rev；iPhone -> Shadowrocket 或 sing-box；Android -> Clash Meta for Android\n'
+    printf '  1. 装客户端：Windows/macOS/Linux -> Clash Verge Rev；iPhone -> Shadowrocket 或 sing-box；Android -> Clash Meta for Android / sing-box\n'
+    printf '     手机用 sing-box 的话，导入同目录的 singbox.json（自带 TUN 与国内直连规则，需 sing-box 1.10+）\n'
     printf '  2. 客户端里：订阅 -> 新增 -> 从 URL 导入 -> 粘贴链接（或导入 clash.yaml 文件）\n'
     printf '  3. 选一个节点，打开"系统代理"或"TUN 模式"\n'
     printf '  4. 浏览器打开 https://ipinfo.io ，出口显示服务器所在国家即成功\n'
@@ -1127,6 +1128,14 @@ EOF
     printf 'To share as a URL, host the files behind TLS auth (or a Cloudflare Worker);\n'
     printf 'a bare http server turns this file into a public credential.\n'
   } > "$outdir/info.txt"
+
+  # 手机端（sing-box）用同一个节点集生成完整 JSON
+  local sbfile="$outdir/singbox.json"
+  if cmd_singbox --name "$name" --out "$sbfile" $([ "$global_mode" = "1" ] && printf -- '--global') >/dev/null 2>&1; then
+    :
+  else
+    rm -f "$sbfile"
+  fi
 
   if [ "$serve" = "1" ]; then
     sub_serve "$outdir" "$serve_port"
@@ -1423,6 +1432,149 @@ is a container or UDP is unusable; Hysteria2 when TCP/443 is taken.
 EOF
 }
 
+
+# ---------------------------------------------------------------------------
+# sing-box 配置：给手机端（sing-box for iOS/Android）用的完整 JSON
+# ---------------------------------------------------------------------------
+cn_suffix_json() {
+  local f="$1" first=1 d
+  if [ ! -r "$f" ]; then printf '[]'; return 0; fi
+  printf '['
+  while read -r d; do
+    case $d in ''|'#'*) continue ;; esac
+    [ "$first" = "1" ] || printf ','
+    first=0
+    printf '%s' "$(json_str "$d")"
+  done < "$f"
+  printf ']'
+}
+
+cmd_singbox() {
+  local name="" out="" global=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --name|-n) name="${2:-}"; shift 2 ;;
+      --out|-o) out="${2:-}"; shift 2 ;;
+      --global) global=1; shift ;;
+      -h|--help)
+        cat <<'EOF'
+singbox options:
+  --name, -n NAME   客户端名（默认 default）
+  --out, -o FILE    输出文件（默认打印到 stdout）
+  --global          不做国内直连分流（全部走代理）
+EOF
+        return 0 ;;
+      *) die "singbox: unknown option '$1'" ;;
+    esac
+  done
+  [ -n "$name" ] || name="default"
+  name="$(validate_client_name "$name")"
+
+  local outbounds="" first_tag="" count=0
+  local f json
+  for be in $BACKENDS; do
+    be_installed "$be" || continue
+    client_exists "$be" "$name" || continue
+    load_backend "$be"
+    f=""
+    case $be in
+      xray-reality)
+        f="$(printf '{"type":"vless","tag":%s,"server":%s,"server_port":%s,"uuid":%s,"flow":%s,"tls":{"enabled":true,"server_name":%s,"utls":{"enabled":true,"fingerprint":%s},"reality":{"enabled":true,"public_key":%s,"short_id":%s}}}' \
+          "$(json_str "reality-$name")" "$(json_str "$(meta_get "$BE_ID" PUBLIC_IP)")" "$(meta_get "$BE_ID" PORT)" \
+          "$(json_str "$(client_get "$BE_ID" "$name" UUID)")" "$(json_str "$(meta_get "$BE_ID" FLOW)")" \
+          "$(json_str "$(meta_get "$BE_ID" SNI)")" "$(json_str "$(meta_get "$BE_ID" FP)")" \
+          "$(json_str "$(meta_get "$BE_ID" PUBKEY)")" "$(json_str "$(meta_get "$BE_ID" SHORT_ID)")")"
+        ;;
+      ss2022)
+        f="$(printf '{"type":"shadowsocks","tag":%s,"server":%s,"server_port":%s,"method":%s,"password":%s}' \
+          "$(json_str "ss2022-$name")" "$(json_str "$(meta_get "$BE_ID" PUBLIC_IP)")" "$(meta_get "$BE_ID" PORT)" \
+          "$(json_str "$(meta_get "$BE_ID" SS_METHOD)")" \
+          "$(json_str "$(client_get "$BE_ID" "$name" PSK):$(meta_get "$BE_ID" SS_SERVER_PSK)")")"
+        ;;
+      hysteria2)
+        local tls ins obfs="" srvtls
+        ins="$(meta_get "$BE_ID" INSECURE)"; [ -n "$ins" ] || ins=1
+        srvtls="$(printf '"tls":{"enabled":true,"server_name":%s,"insecure":%s}' \
+          "$(json_str "$(meta_get "$BE_ID" SNI)")" "$([ "$ins" = "1" ] && printf true || printf false)")"
+        if [ "$(meta_get "$BE_ID" OBFS_ENABLED)" = "1" ]; then
+          obfs="$(printf ',"obfs":{"type":%s,"password":%s}' \
+            "$(json_str "$(meta_get "$BE_ID" OBFS)")" "$(json_str "$(meta_get "$BE_ID" OBFS_PASS)")")"
+        fi
+        f="$(printf '{"type":"hysteria2","tag":%s,"server":%s,"server_port":%s,"password":%s,%s%s}' \
+          "$(json_str "hy2-$name")" "$(json_str "$(meta_get "$BE_ID" PUBLIC_IP)")" "$(meta_get "$BE_ID" PORT)" \
+          "$(json_str "$(client_get "$BE_ID" "$name" PASSWORD)")" "$srvtls" "$obfs")"
+        ;;
+      trojan)
+        local ins2 skip=""
+        ins2="$(meta_get "$BE_ID" CERT_SOURCE)"
+        [ "$ins2" = "self-signed" ] && skip=',"insecure":true'
+        f="$(printf '{"type":"trojan","tag":%s,"server":%s,"server_port":%s,"password":%s,"tls":{"enabled":true,"server_name":%s,"alpn":[%s]%s}}' \
+          "$(json_str "trojan-$name")" "$(json_str "$(meta_get "$BE_ID" DOMAIN)")" "$(meta_get "$BE_ID" PORT)" \
+          "$(json_str "$(client_get "$BE_ID" "$name" PASSWORD)")" "$(json_str "$(meta_get "$BE_ID" DOMAIN)")" \
+          "$(json_str "$(meta_get "$BE_ID" ALPN)")" "$skip")"
+        ;;
+      *) continue ;;
+    esac
+    [ -n "$first_tag" ] || first_tag="$(printf '%s' "$f" | sed -n 's/.*"tag":"\([^"]*\)".*/\1/p')"
+    if [ -z "$outbounds" ]; then outbounds="$f"; else outbounds="$outbounds,$f"; fi
+    count=$((count + 1))
+  done
+
+  [ "$count" -gt 0 ] || die "没有可用的节点：先 vpnctl client <backend> add --name $name"
+
+  local cnlist; cnlist="$(asset_dir)/cn-direct.txt"
+  local cn_json; cn_json="$(cn_suffix_json "$cnlist")"
+
+  local dns_rules route_rules rule_of_cn
+  if [ "$global" = "1" ] || [ "$cn_json" = "[]" ]; then
+    dns_rules="[]"
+    route_rules='{"ip_is_private":true,"outbound":"direct"}'
+  else
+    dns_rules="$(printf '{"domain_suffix":%s,"server":"local"}' "$cn_json")"
+    route_rules="$(printf '{"domain_suffix":%s,"outbound":"direct"},{"ip_is_private":true,"outbound":"direct"}' "$cn_json")"
+  fi
+
+  local json
+  json="$(printf '{
+  "log": {"level": "warn", "timestamp": true},
+  "dns": {
+    "servers": [
+      {"tag": "local", "address": "223.5.5.5", "detour": "direct"},
+      {"tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": %s}
+    ],
+    "rules": [%s],
+    "final": "remote"
+  },
+  "inbounds": [{
+    "type": "tun",
+    "tag": "tun-in",
+    "address": ["172.19.0.1/30"],
+    "mtu": 9000,
+    "auto_route": true,
+    "strict_route": true,
+    "stack": "system"
+  }],
+  "outbounds": [
+    %s,
+    {"type": "direct", "tag": "direct"}
+  ],
+  "route": {
+    "rules": [%s],
+    "final": %s,
+    "auto_detect_route": false,
+    "auto_detect_interface": true
+  }
+}' "$(json_str "$first_tag")" "$dns_rules" "$outbounds" "$route_rules" "$(json_str "$first_tag")")"
+
+  if [ -z "$out" ]; then
+    printf '%s\n' "$json"
+  else
+    printf '%s\n' "$json" > "$out"
+    chmod 600 "$out"
+    log_ok "sing-box config: $out ($count node(s))"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
@@ -1437,6 +1589,7 @@ case $CMD in
   sub)       cmd_sub "$@" ;;
   check-sites|sites) . "$LIB_DIR/sites.sh"; cmd_check_sites "$@" ;;
   import)    cmd_import "$@" ;;
+  singbox)   cmd_singbox "$@" ;;
   backup)    cmd_backup ;;
   uninstall) cmd_uninstall "$@" ;;
   doctor)    cmd_doctor ;;

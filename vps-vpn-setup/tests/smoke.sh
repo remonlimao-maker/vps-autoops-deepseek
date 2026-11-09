@@ -851,8 +851,29 @@ assert_contains "$sh_body" "Vultr" "names the provider"
 assert_contains "$(cat "$(dirname "$SKILL_DIR")/README.md")" "START-HERE.md" "README points beginners at it"
 
 # ---------------------------------------------------------------------------
+group "27. sing-box config for mobile"
+SB="$TMP/sb.json"
+sb_msg="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" singbox --name phone --out "$SB" 2>&1)"
+assert_contains "$sb_msg" "3 node(s)" "singbox reports the node count"
+if python3 - "$SB" <<'PYV'
+import json, sys
+d = json.load(open(sys.argv[1]))
+tags = [o["tag"] for o in d["outbounds"]]
+assert "reality-phone" in tags and "hy2-phone" in tags, tags
+assert d["route"]["final"] == "reality-phone", d["route"]["final"]
+assert d["inbounds"][0]["type"] == "tun", d["inbounds"]
+assert d["inbounds"][0]["auto_route"] is True
+assert any("domain_suffix" in r for r in d["route"]["rules"]), "no CN direct rule"
+assert d["outbounds"][0]["tls"]["reality"]["enabled"] is True
+PYV
+then pass "sing-box JSON is valid and complete"; else fail "sing-box JSON is valid and complete"; fi
+assert_contains "$(cat "$SUB_OUT/singbox.json" 2>/dev/null)" "outbounds" "sub also writes singbox.json"
+assert_contains "$(cat "$SCRIPTS/lib/sub-server.py")" "singbox.json" "the endpoint serves singbox.json"
+assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "singbox.json" "info.txt tells phone users about it"
+
+# ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
-group "27. documented counts"
+group "28. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 if [ "$nums" = "$expected" ]; then

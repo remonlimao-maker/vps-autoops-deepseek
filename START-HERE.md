@@ -34,6 +34,26 @@
 
 ## 路径 A：AI 全自动（推荐）
 
+### 第 0 步：装一个能执行命令的 AI
+
+路径 A 需要 **DeepSeek Harness**（DeepSeek 官方的桌面 Agent 应用，当前版本 `0.2.2-rc.1`）。
+如果你已经装了、并且它能在你电脑上跑命令，跳到第 1 步。
+
+**怎么装**：
+
+1. 从 **DeepSeek 官方渠道**获取安装包（官网 / 官方公告 / 官方群）。**不要用网盘里的"绿色版"**——这类工具会执行命令，装了来路不明的版本等于把电脑交出去。
+2. macOS：打开 `.dmg`，把应用拖进 `Applications`
+3. Windows：运行安装程序，一路下一步
+4. 首次打开：登录 DeepSeek 账号、选一个模型
+5. **验证**：在对话框问一句
+
+   > 你能在这台电脑上运行命令吗？试一下 `echo hello`
+
+   它执行并返回 `hello` → 具备了，继续。只会聊天、不能执行 → 走路径 B。
+
+**装不了 DSH 的替代方案**：Claude Code 或 Codex CLI 也能做同样的事，但它们需要先装 Node.js，
+对新手反而更麻烦。建议优先找一台 Mac/Windows 装 DSH。
+
 ### 第 1 步：拿到这个仓库
 
 **会 git 的话**，在终端里：
@@ -146,7 +166,11 @@ http://1.2.3.4:27008/xxxxxx/clash.yaml
 ### 第 5 步：在自己电脑/手机上装客户端
 
 照 [`getting-started.md`](vps-vpn-setup/references/getting-started.md) 做：
-装 Clash Verge（电脑）或 Shadowrocket / CMFA（手机）→ 从 URL 导入 → 选节点 → 开系统代理。
+**电脑**：装 **Clash Verge** → 从 URL 导入订阅 → 选节点 → 打开「系统代理」。
+
+**手机（推荐 sing-box，免费）**：装 **sing-box** → 导入导出的 `singbox.json` → 打开开关。
+这份 JSON 已经包含节点和国内直连规则，不用手填任何参数
+（详细步骤见 [手机端章节](vps-vpn-setup/references/getting-started.md)）。
 
 ---
 

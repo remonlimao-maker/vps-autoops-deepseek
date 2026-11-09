@@ -260,6 +260,6 @@ case $CMD in
   install) cmd_install ;;
   import) cmd_import "${URL:-}" ;;
   all) cmd_all "${URL:-}" ;;
-  help|-h) usage ;;
+  help|-h|--help) usage ;;
   *) usage >&2; die "unknown command: $CMD" ;;
 esac

@@ -826,6 +826,28 @@ for d in references scripts assets tests; do
 done
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+group "25. every entry point answers --help"
+for entry in "$SCRIPTS/vpnctl" "$SCRIPTS/remote.sh" "$SCRIPTS/clientctl" "$SCRIPTS/check-ip.sh" "$SCRIPTS/autopilot.sh"; do
+  name="$(basename "$entry")"
+  if bash "$entry" --help >/dev/null 2>&1; then
+    pass "$name --help exits 0"
+  else
+    fail "$name --help exits 0" "未处理 --help 的入口会让用户以为工具坏了"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
+group "26. documented counts"
+expected=$(( PASS + 1 ))
+nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+if [ "$nums" = "$expected" ]; then
+  pass "docs state the real test count ($expected)"
+else
+  fail "docs state the real test count" "docs say [$nums], actual is $expected — update SKILL.md/README.md/TESTING.md"
+fi
+
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s   skipped %s\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

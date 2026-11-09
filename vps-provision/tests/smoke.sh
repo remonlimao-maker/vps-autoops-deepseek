@@ -184,6 +184,15 @@ assert_eq "2" "$pub_rc" "a key that only passes public endpoints is rejected"
 assert_contains "$pub_out" "invalid" "the failure names the real reason"
 if [ -e "$PUB_HOME/vultr.key" ]; then fail "the bad key is not persisted"; else pass "the bad key is not persisted"; fi
 
+group "13. documented counts"
+expected=$(( PASS + 1 ))
+nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+if [ "$nums" = "$expected" ]; then
+  pass "docs state the real test count ($expected)"
+else
+  fail "docs state the real test count" "docs say [$nums], actual is $expected"
+fi
+
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -gt 0 ] && exit 1

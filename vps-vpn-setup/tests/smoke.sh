@@ -894,8 +894,21 @@ bad_dir_out="$(bash "$CC" attach 'http://x/y' --config-dir "$TMP/nonexistent-dir
 assert_eq "2" "$bad_rc" "a missing config dir is refused, not created"
 
 # ---------------------------------------------------------------------------
+group "29. clientctl doctor"
+doc_json="$(bash "$CC" doctor --json --config-dir "$TMP/nocfg" 2>/dev/null)"
+if python3 -c 'import json,sys;d=json.loads(sys.argv[1]);assert set(["os","arch","client_installed","config_dir","config_found","attach_supported"])<=set(d);assert d["config_found"] is False' "$doc_json" 2>/dev/null; then
+  pass "doctor reports capabilities as JSON"
+else
+  fail "doctor reports capabilities as JSON" "$doc_json"
+fi
+doc_txt="$(bash "$CC" doctor --config-dir "$CV" 2>&1)"
+assert_contains "$doc_txt" "直接写配置" "doctor explains the attach capability"
+assert_contains "$doc_txt" "可以" "doctor confirms attach works with a config dir"
+assert_contains "$doc_txt" "attach" "doctor prints the next command"
+
+# ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
-group "29. documented counts"
+group "30. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 if [ "$nums" = "$expected" ]; then

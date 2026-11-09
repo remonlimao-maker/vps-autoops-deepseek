@@ -412,7 +412,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 284 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 288 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

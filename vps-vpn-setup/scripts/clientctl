@@ -3,6 +3,7 @@
 #
 # 服务端那套（vpnctl）跑在 VPS 上；这个是给本机用的，解决新手最后一步：
 #   detect  看看本机是什么系统、有没有装客户端
+#   doctor  这台电脑能自动到什么程度（装/导入/写配置）
 #   install 从官方 release 下载、校验 sha256、装好
 #   import  用 clash:// 深链接把订阅直接灌进客户端
 #   all     一条命令做完上面三件事
@@ -236,7 +237,8 @@ cmd_import() {
 cv_dir() {
   case "$(os_name)" in
     macos) printf '%s/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev' "$HOME" ;;
-    linux) printf '%s/.local/share/io.github.clash-verge-rev.clash-verge-rev' "${XDG_DATA_HOME:-$HOME/.local/share}" 2>/dev/null ;;
+    linux) printf '%s/io.github.clash-verge-rev.clash-verge-rev' "${XDG_DATA_HOME:-$HOME/.local/share}" 2>/dev/null ;;
+    windows) printf '%s/io.github.clash-verge-rev.clash-verge-rev' "${APPDATA:-$HOME/AppData/Roaming}" 2>/dev/null ;;
     *) printf '' ;;
   esac
 }
@@ -311,6 +313,38 @@ PYA
   esac
 }
 
+
+cmd_doctor() {
+  local dir inst; dir="${CONFIG_DIR:-$(cv_dir)}"
+  installed && inst=true || inst=false
+  local cfg=false can_attach=false
+  if [ -n "$dir" ] && [ -f "$dir/profiles.yaml" ]; then cfg=true; can_attach=true; fi
+
+  if [ "$JSON" = "1" ]; then
+    printf '{"os":"%s","arch":"%s","client_installed":%s,"config_dir":"%s","config_found":%s,"attach_supported":%s}\n' \
+      "$(os_name)" "$(arch_name)" "$inst" "$dir" "$cfg" "$can_attach"
+    return 0
+  fi
+
+  printf '系统        %s / %s\n' "$(os_name)" "$(arch_name)"
+  printf '客户端      %s（%s）\n' "$CLIENT" "$([ "$inst" = "true" ] && echo 已安装 || echo 未安装)"
+  printf '配置目录    %s\n' "${dir:-（本系统未知）}"
+  printf '目录可写    %s\n' "$([ "$cfg" = "true" ] && echo 是 || echo 否)"
+  printf '\n能力\n'
+  printf '  自动安装客户端   %s\n' "$([ "$(os_name)" = "windows" ] && echo '仅下载安装包' || echo '可以')"
+  printf '  深链接导入       %s\n' "$([ "$inst" = "true" ] && echo '可以（依赖客户端响应 clash://）' || echo '客户端未装')"
+  printf '  直接写配置       %s\n' "$([ "$cfg" = "true" ] && echo '可以（含设为当前 + 系统代理开关）' || echo '否，先用 import 或手动导入')"
+  printf '\n下一步\n'
+  if [ "$cfg" = "true" ]; then
+    printf '  ./clientctl attach "<订阅链接>" --name phone --system-proxy\n'
+    printf '  然后重启客户端生效\n'
+  elif [ "$inst" = "true" ]; then
+    printf '  先启动一次客户端，让它生成配置目录，再跑 doctor\n'
+  else
+    printf '  ./clientctl install     # 装客户端\n'
+  fi
+}
+
 cmd_all() {
   local url="$1"
   cmd_detect
@@ -344,6 +378,7 @@ done
 
 case $CMD in
   detect) cmd_detect ;;
+  doctor) cmd_doctor ;;
   install) cmd_install ;;
   import) cmd_import "${URL:-}" ;;
   all) cmd_all "${URL:-}" ;;

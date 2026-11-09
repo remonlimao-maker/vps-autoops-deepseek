@@ -307,7 +307,16 @@ bash scripts/clientctl detect                      # 先看系统和是否已装
 bash scripts/clientctl all "<订阅链接>"             # 下载 + 安装 + 深链接导入
 ```
 
-macOS/Linux 能真的装；Windows 只下载安装包。装完仍要提醒用户手动点一下「设为当前」「系统代理」。
+macOS/Linux 能真的装；Windows 只下载安装包。
+
+**再进一步**：Clash Verge 的状态都在文件里（`profiles.yaml` 的 `current:`、`verge.yaml` 的
+`enable_system_proxy`），可以完全免点界面：
+
+```bash
+bash scripts/clientctl attach "<订阅链接>" --name phone --system-proxy
+```
+
+写完后让用户重启客户端即可。深链接（`import`）作为兼容路径保留。
 
 完整的分系统步骤见 `references/getting-started.md`（含截图级细节和常见问题）。
 
@@ -403,7 +412,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 275 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 284 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

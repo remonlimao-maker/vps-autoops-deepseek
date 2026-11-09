@@ -12,6 +12,7 @@
 #   ./clientctl install            # macOS / Linux 会真的装
 #   ./clientctl import <订阅链接> --name phone
 #   ./clientctl all <订阅链接>
+#   ./clientctl attach <订阅链接> [--system-proxy]   # 直接写 Clash Verge 配置（无需点界面）
 
 set -uo pipefail
 
@@ -23,6 +24,8 @@ NAME="phone"
 CLIENT="clash-verge"
 RELEASE_JSON=""
 DOWNLOAD_ONLY=""
+CONFIG_DIR=""
+SYSTEM_PROXY=0
 
 if [ -t 2 ]; then C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
 else C_OK=''; C_WARN=''; C_ERR=''; C_DIM=''; C_RST=''; fi
@@ -226,6 +229,88 @@ cmd_import() {
   info "客户端里确认：订阅出现在列表里 → 设为当前 → 选节点 → 开系统代理/TUN"
 }
 
+
+# ---------------------------------------------------------------------------
+# attach：直接把订阅写进 Clash Verge 的配置文件（不依赖深链接、不点界面）
+# ---------------------------------------------------------------------------
+cv_dir() {
+  case "$(os_name)" in
+    macos) printf '%s/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev' "$HOME" ;;
+    linux) printf '%s/.local/share/io.github.clash-verge-rev.clash-verge-rev' "${XDG_DATA_HOME:-$HOME/.local/share}" 2>/dev/null ;;
+    *) printf '' ;;
+  esac
+}
+
+cmd_attach() {
+  local url="$1" dir; dir="${CONFIG_DIR:-$(cv_dir)}"
+  [ -n "$url" ] || die "attach 需要订阅链接"
+  [ -n "$dir" ] || die "这个系统暂不支持自动写入（用 import 走深链接）"
+  [ -f "$dir/profiles.yaml" ] || die "找不到 $dir/profiles.yaml —— 先启动一次 Clash Verge，让它生成配置目录"
+
+  local uid; uid="$(python3 -c 'import secrets,string;a=string.ascii_letters+string.digits;print("".join(secrets.choice(a) for _ in range(12)))')"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    info "dry run: 将写入 $dir/profiles/$uid.yaml"
+    info "dry run: 在 profiles.yaml 末尾追加一项 (name=$NAME, type=remote)"
+    info "dry run: 把 current 改成 $uid"
+    [ "$SYSTEM_PROXY" = "1" ] && info "dry run: verge.yaml 的 enable_system_proxy 设为 true"
+    return 0
+  fi
+
+  python3 - "$dir" "$uid" "$NAME" "$url" "${SYSTEM_PROXY:-0}" <<'PYA'
+import pathlib, sys, time, shutil
+dir_, uid, name, url, sysproxy = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+base = pathlib.Path(dir_)
+profiles = base / "profiles.yaml"
+backup = base / ("profiles.yaml.bak.%d" % int(time.time()))
+shutil.copy2(profiles, backup)
+
+text = profiles.read_text()
+# 1) 追加 remote profile 条目
+item = (
+    "  - uid: %s\n"
+    "    type: remote\n"
+    "    name: %s\n"
+    "    desc: ''\n"
+    "    url: %s\n"
+    "    file: %s.yaml\n"
+    "    updated: %d\n"
+) % (uid, name.replace("'", "''"), url, uid, int(time.time()))
+if not text.endswith("\n"):
+    text += "\n"
+text += item
+
+# 2) 设为当前
+import re
+if re.search(r'^current:', text, re.M):
+    text = re.sub(r'^current:.*$', "current: %s" % uid, text, count=1, flags=re.M)
+else:
+    text = "current: %s\n" % uid + text
+profiles.write_text(text)
+
+# 3) 可选：打开系统代理
+if sysproxy == "1":
+    vp = base / "verge.yaml"
+    if vp.exists():
+        vtext = vp.read_text()
+        if re.search(r'^enable_system_proxy:', vtext, re.M):
+            vtext = re.sub(r'^enable_system_proxy:.*$', "enable_system_proxy: true", vtext, count=1, flags=re.M)
+        else:
+            vtext += "\nenable_system_proxy: true\n"
+        vp.write_text(vtext)
+print(backup)
+PYA
+
+  ok "已写入 profile：$NAME ($uid)"
+  ok "已设为当前订阅"
+  [ "$SYSTEM_PROXY" = "1" ] && ok "已打开系统代理开关"
+  info "重启客户端生效（应用退出时会重写配置，所以必须先退出再启动）"
+  case "$(os_name)" in
+    macos) info "  osascript -e 'quit app \"Clash Verge\"'; open -a 'Clash Verge'" ;;
+    linux) info "  退出并重新打开 Clash Verge" ;;
+  esac
+}
+
 cmd_all() {
   local url="$1"
   cmd_detect
@@ -249,6 +334,8 @@ while [ "$#" -gt 0 ]; do
     --json) JSON=1; shift ;;
     --release-json) RELEASE_JSON="${2:-}"; shift 2 ;;
     --download-to) DOWNLOAD_ONLY="${2:-}"; shift 2 ;;
+    --config-dir) CONFIG_DIR="${2:-}"; shift 2 ;;
+    --system-proxy) SYSTEM_PROXY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) die "unknown option: $1" ;;
     *) URL="$1"; shift ;;
@@ -260,6 +347,7 @@ case $CMD in
   install) cmd_install ;;
   import) cmd_import "${URL:-}" ;;
   all) cmd_all "${URL:-}" ;;
+  attach) cmd_attach "${URL:-}" ;;
   help|-h|--help) usage ;;
   *) usage >&2; die "unknown command: $CMD" ;;
 esac

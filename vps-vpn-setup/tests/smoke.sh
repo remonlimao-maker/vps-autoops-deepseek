@@ -872,8 +872,30 @@ assert_contains "$(cat "$SCRIPTS/lib/sub-server.py")" "singbox.json" "the endpoi
 assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "singbox.json" "info.txt tells phone users about it"
 
 # ---------------------------------------------------------------------------
+group "28. clash verge direct attach"
+CV="$TMP/cv"
+mkdir -p "$CV/profiles"
+printf 'current: OLD1\nitems:\n  - uid: OLD1\n    type: local\n    name: old\n    file: OLD1.yaml\n' > "$CV/profiles.yaml"
+printf 'enable_system_proxy: false\nverge_mixed_port: 7897\n' > "$CV/verge.yaml"
+
+dry="$(bash "$CC" attach 'http://1.2.3.4:1/tok/clash.yaml' --name phone --dry-run --config-dir "$CV" 2>&1)"
+assert_contains "$dry" "dry run" "attach --dry-run previews"
+assert_contains "$(cat "$CV/profiles.yaml")" "current: OLD1" "dry run writes nothing"
+
+bash "$CC" attach 'http://1.2.3.4:1/tok/clash.yaml' --name phone --system-proxy --config-dir "$CV" >/dev/null 2>&1
+assert_contains "$(cat "$CV/profiles.yaml")" "type: remote" "attach adds a remote profile"
+assert_contains "$(cat "$CV/profiles.yaml")" "name: phone" "profile carries the name"
+assert_contains "$(cat "$CV/profiles.yaml")" "http://1.2.3.4:1/tok/clash.yaml" "profile carries the url"
+newuid="$(sed -n 's/^current: //p' "$CV/profiles.yaml")"
+assert_eq "phone" "$(grep -A2 "uid: $newuid" "$CV/profiles.yaml" | sed -n 's/.*name: //p')" "current points at the new profile"
+assert_contains "$(cat "$CV/verge.yaml")" "enable_system_proxy: true" "--system-proxy flips the switch"
+ls "$CV"/profiles.yaml.bak.* >/dev/null 2>&1 && pass "profiles.yaml is backed up before writing" || fail "profiles.yaml is backed up before writing"
+bad_dir_out="$(bash "$CC" attach 'http://x/y' --config-dir "$TMP/nonexistent-dir" 2>&1)"; bad_rc=$?
+assert_eq "2" "$bad_rc" "a missing config dir is refused, not created"
+
+# ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
-group "28. documented counts"
+group "29. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 if [ "$nums" = "$expected" ]; then

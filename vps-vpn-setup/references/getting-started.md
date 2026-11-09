@@ -20,7 +20,7 @@ cd vps-vpn-setup
 
 | 系统 | 它会做什么 |
 |---|---|
-| macOS | 下载 `.dmg` → 装到 `/Applications` → 打开深链接导入 |
+| macOS | 下载 `.dmg` → 装到 `/Applications` → 打开深链接导入（或直接写配置文件，见下） |
 | Linux | 下载 `AppImage` → 装到 `~/.local/bin` → `xdg-open` 导入 |
 | Windows | 下载 `.exe` 到 `~/Downloads`（需要你双击运行） |
 
@@ -33,7 +33,28 @@ cd vps-vpn-setup
 ```
 
 > 深链接格式是 `clash://install-config?url=...`，Clash Verge 系客户端支持。
-> 如果客户端版本不认，退回下面的手动步骤。
+> 如果客户端版本不认，用下面的「直接写配置」方式。
+
+### 完全自动：直接写 Clash Verge 的配置
+
+深链接靠客户端响应，可能被版本差异影响。更确定的方式是**直接改它的配置文件**：
+
+```bash
+./scripts/clientctl attach "<订阅链接>" --name phone --system-proxy
+```
+
+它会：
+
+1. 在 `profiles.yaml` 里追加一条 **remote** profile（客户端可从链接自动更新）
+2. 把 `current:` 指向这条新配置（等于在界面里点「设为当前」）
+3. 把 `verge.yaml` 的 `enable_system_proxy` 改成 `true`（等于打开系统代理开关）
+4. 写入前备份 `profiles.yaml`
+
+然后**退出并重新打开客户端**生效（应用运行时会在退出时重写配置）。
+
+不想打开系统代理就省掉 `--system-proxy`；想先看它改什么就加 `--dry-run`。
+
+> 只在客户端**完全退出**时写入才安全。命令会提示你重启。
 
 自动装失败或想自己控制时，按下面的分系统步骤走。
 

@@ -35,12 +35,26 @@ done
 
 [ -n "$HOST" ] || { printf 'usage: check-ip.sh <IP> [--port 443] [--ssh-port 22]\n' >&2; exit 2; }
 
-# nc 的连接超时参数在 BSD/GNU 上不同，两种都试
+# 必须在过滤端口上也有硬超时：nc 的 -w/-G 在 macOS 上对 connect 不生效，
+# 遇到 DROP 的端口会挂到内核超时（70 秒以上）。
 tcp_open() {
   local h="$1" p="$2"
-  nc -z -G 4 "$h" "$p" >/dev/null 2>&1 && return 0
-  nc -z -w 4 "$h" "$p" >/dev/null 2>&1 && return 0
-  return 1
+  if command -v perl >/dev/null 2>&1; then
+    perl -MIO::Socket::INET -e '
+      my $s = IO::Socket::INET->new(PeerAddr => $ARGV[0], PeerPort => $ARGV[1], Timeout => 3);
+      exit($s ? 0 : 1);
+    ' "$h" "$p" 2>/dev/null && return 0
+    return 1
+  fi
+  if command -v nc >/dev/null 2>&1; then
+    nc -z -w 3 "$h" "$p" >/dev/null 2>&1 && return 0
+  fi
+  # 最后兜底：bash 的 /dev/tcp + 看门狗
+  ( exec 3<>"/dev/tcp/$h/$p" ) 2>/dev/null &
+  local pid=$! i=0
+  while [ "$i" -lt 30 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; return 1; fi
+  wait "$pid" 2>/dev/null
 }
 
 svc_ok=0; ssh_ok=0; ctl_ok=0

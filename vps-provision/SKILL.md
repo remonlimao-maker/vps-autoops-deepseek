@@ -110,6 +110,24 @@ vpsctl reboot jp1 / snapshot jp1 --desc before-upgrade / destroy jp1
 模板套用流程：`scp 模板 → 服务器上 vpnctl sub --template → 拉回 clash.yaml`。
 模板里只有节点定义和分组成员会被替换，规则集与规则原样保留。
 
+## 实例命名
+
+默认是**可读**的：`<用途>-<区域>-<序号>`，例如：
+
+| 用途 | 区域 | 名字 |
+|---|---|---|
+| chatgpt | nrt | `chatgpt-nrt-1` |
+| youtube | sea | `youtube-sea-1` |
+| 通用 | ewr | `vpn-ewr-1`（`all`/`vpn`/`proxy` 都归为 `vpn`） |
+
+规则：
+
+- 只保留小写字母、数字和连字符（云厂商标签限制）
+- 本地记录和**云端已有标签**都会检查，撞名自动 +1
+- 想自己起名字：`--name my-server`（仍会被清洗成合法字符）
+
+不要用随机串——将来在控制台里看到一堆 `x7f2k9` 时，你分不清哪台是哪台。
+
 ## 用户要能登录控制台
 
 用 SSH 密钥创建的实例，root 没有可用密码，Vultr 的 **View Console** 登不进去。

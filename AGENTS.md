@@ -36,7 +36,7 @@
 ## 本地检查（不需要 VPS）
 
 ```bash
-bash vps-provision/tests/smoke.sh      # 66 项断言（假 API，不花钱）
+bash vps-provision/tests/smoke.sh      # 69 项断言（假 API，不花钱）
 bash vps-vpn-setup/tests/smoke.sh      # 300 项断言
 bash vps-vpn-setup/scripts/vpnctl doctor
 bash -n vps-provision/scripts/vpsctl vps-vpn-setup/scripts/vpnctl

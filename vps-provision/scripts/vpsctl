@@ -575,11 +575,33 @@ resolve_os() {
   '
 }
 
+# resolve_name REGION [PURPOSE] -> 可读且唯一的名字，例如 chatgpt-ewr-1
+#
+# 原则：名字要让人一眼看出"这台是干什么的、在哪"。
+# 本地状态和云端标签都要查，避免和账号里已有的机器撞名。
+label_taken() {
+  local want="$1" l
+  [ -n "$want" ] || return 1
+  instance_exists "$want" && return 0          # 本地记录
+  printf '%s\n' "${CLOUD_LABELS:-}" | awk -F'|' -v w="$want" '$2 == w { found=1 } END { exit(found ? 0 : 1) }'
+}
+
 resolve_name() {
-  local region="$1" base i=1
-  base="$(printf '%s' "$region" | cut -c1-3)"
+  local region="$1" purpose="${2:-vpn}"
+  # 清理成合法的标签字符，并压短，避免出现一长串
+  purpose="$(printf '%s' "$purpose" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
+  [ -n "$purpose" ] || purpose="vpn"
+  case $purpose in
+    all|vpn|proxy) purpose="vpn" ;;
+  esac
+  # 只取一次云端实例列表，否则每个候选名都要打一次 API
+  if [ -z "${CLOUD_LABELS:-}" ]; then
+    CLOUD_LABELS="$(vultr_instances 2>/dev/null || true)"
+  fi
+  local base="${purpose}-${region}"
+  local i=1
   while [ "$i" -lt 100 ]; do
-    if ! instance_exists "$base$i"; then printf '%s%s' "$base" "$i"; return 0; fi
+    if ! label_taken "${base}-${i}"; then printf '%s-%s' "$base" "$i"; return 0; fi
     i=$((i + 1))
   done
   die "could not find a free instance name"
@@ -640,7 +662,7 @@ EOF
   os_id="$GO_OS"
   [ "$os_id" = "auto" ] && os_id="$(resolve_os debian)"
   name="$GO_NAME"
-  [ "$name" = "auto" ] && name="$(resolve_name "$region")"
+  [ "$name" = "auto" ] && name="$(resolve_name "$region" "$GO_PURPOSE")"
   tpl="$(resolve_template "$GO_TEMPLATE")"
 
   [ -n "$region" ] || die "could not resolve a region"

@@ -8,7 +8,7 @@ scripts/vpsctl        唯一命令入口
 scripts/lib/common.sh 日志、状态、JSON
 scripts/lib/vultr.sh  Vultr API v2（8 个函数，可替换）
 references/providers.md  厂商接口约定 + 如何接 DigitalOcean/Hetzner
-tests/smoke.sh        假 API，66 项断言，不花钱
+tests/smoke.sh        假 API，69 项断言，不花钱
 ```
 
 ## 一句话

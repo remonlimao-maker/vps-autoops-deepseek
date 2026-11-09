@@ -48,7 +48,7 @@ case "$method $path" in
   "GET /ssh-keys") body='{"ssh_keys":[]}' ;;
   "POST /ssh-keys") body='{"ssh_key":{"id":"key-abc"}}' ;;
   "POST /instances") body='{"instance":{"id":"inst-abc"}}' ;;
-  "GET /instances") body='{"instances":[{"id":"inst-abc","label":"jp1","region":"nrt","plan":"vc2-1c-1gb","status":"active","main_ip":"203.0.113.7","monthly_cost":6},{"id":"inst-old","label":"old","region":"sea","plan":"vc2-1c-1gb","status":"active","main_ip":"203.0.113.8","monthly_cost":6},{"id":"inst-dead","label":"dead","region":"sea","plan":"vc2-1c-1gb","status":"stopped","main_ip":"","monthly_cost":6}],"meta":{"links":{}}}' ;;
+  "GET /instances") body='{"instances":[{"id":"inst-abc","label":"jp1","region":"nrt","plan":"vc2-1c-1gb","status":"active","main_ip":"203.0.113.7","monthly_cost":6},{"id":"inst-old","label":"old","region":"sea","plan":"vc2-1c-1gb","status":"active","main_ip":"203.0.113.8","monthly_cost":6},{"id":"inst-dead","label":"dead","region":"sea","plan":"vc2-1c-1gb","status":"stopped","main_ip":"","monthly_cost":6},{"id":"inst-y","label":"youtube-nrt-1","region":"nrt","plan":"vc2-1c-1gb","status":"stopped","main_ip":"","monthly_cost":6}],"meta":{"links":{}}}' ;;
   "GET /instances/"*) body='{"instance":{"status":"active","main_ip":"203.0.113.7","label":"jp1","region":"nrt","plan":"vc2-1c-1gb","monthly_cost":6,"date_created":"2026-01-01T00:00:00+00:00"}}' ;;
   DELETE*) body='{}' ;;
   *) body='{}' ;;
@@ -135,7 +135,7 @@ go_out="$(bash "$VPSCTL" go --dry-run --purpose chatgpt --template no --client p
 assert_contains "$go_out" "region    nrt" "go resolves a ChatGPT-friendly region"
 assert_contains "$go_out" "plan      vc2-1c-1gb" "go resolves the cheapest fitting plan"
 assert_contains "$go_out" "image     Debian 12 x64" "go resolves a Debian image"
-assert_contains "$go_out" "name      nrt1" "go derives an instance name from the region"
+assert_contains "$go_out" "name      chatgpt-nrt-1" "go derives a readable instance name"
 assert_contains "$go_out" "mainland client" "go defaults to a mainland client"
 if grep -q "POST https://api.vultr.com/v2/instances" "$FAKE_LOG"; then
   fail "go --dry-run creates nothing"
@@ -202,6 +202,14 @@ cost_txt="$(bash "$VPSCTL" cost 2>/dev/null)"
 assert_contains "$cost_txt" "合计约 \$12.00" "human output shows the total"
 assert_contains "$cost_txt" "vpsctl destroy" "and tells the user how to stop paying"
 assert_contains "$cost_txt" "stopped" "stopped instances are listed but not billed"
+
+group "12b. readable instance names"
+n1="$(bash "$VPSCTL" go --dry-run --purpose chatgpt --region nrt 2>&1 | sed -n 's/^  name *//p' | head -1)"
+assert_eq "chatgpt-nrt-1" "$n1" "default name is purpose-region-index"
+n2="$(bash "$VPSCTL" go --dry-run --purpose youtube --region nrt 2>&1 | sed -n 's/^  name *//p' | head -1)"
+assert_eq "youtube-nrt-2" "$n2" "an existing cloud label is skipped"
+n3="$(bash "$VPSCTL" go --dry-run --purpose 'ALL' --region sea 2>&1 | sed -n 's/^  name *//p' | head -1)"
+assert_eq "vpn-sea-1" "$n3" "generic purposes collapse to vpn-"
 
 group "13. documented counts"
 expected=$(( PASS + 1 ))

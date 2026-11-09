@@ -1525,26 +1525,18 @@ EOF
   local cnlist; cnlist="$(asset_dir)/cn-direct.txt"
   local cn_json; cn_json="$(cn_suffix_json "$cnlist")"
 
-  local dns_rules route_rules rule_of_cn
+  local route_rules
   if [ "$global" = "1" ] || [ "$cn_json" = "[]" ]; then
-    dns_rules="[]"
     route_rules='{"ip_is_private":true,"outbound":"direct"}'
   else
-    dns_rules="$(printf '{"domain_suffix":%s,"server":"local"}' "$cn_json")"
     route_rules="$(printf '{"domain_suffix":%s,"outbound":"direct"},{"ip_is_private":true,"outbound":"direct"}' "$cn_json")"
   fi
 
   local json
+  # 故意不写 dns 段：sing-box 1.12 起 DNS 服务器格式变更，旧写法在
+  # 新版会报错；不写则用系统解析器，兼容 1.10+ 全系，国内域名仍走直连。
   json="$(printf '{
   "log": {"level": "warn", "timestamp": true},
-  "dns": {
-    "servers": [
-      {"tag": "local", "address": "223.5.5.5", "detour": "direct"},
-      {"tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": %s}
-    ],
-    "rules": [%s],
-    "final": "remote"
-  },
   "inbounds": [{
     "type": "tun",
     "tag": "tun-in",
@@ -1564,7 +1556,7 @@ EOF
     "auto_detect_route": false,
     "auto_detect_interface": true
   }
-}' "$(json_str "$first_tag")" "$dns_rules" "$outbounds" "$route_rules" "$(json_str "$first_tag")")"
+}' "$outbounds" "$route_rules" "$(json_str "$first_tag")")"
 
   if [ -z "$out" ]; then
     printf '%s\n' "$json"

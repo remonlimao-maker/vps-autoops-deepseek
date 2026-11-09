@@ -23,7 +23,7 @@ vpsctl go --purpose chatgpt --yes
 | 参数 | 未指定时 | 依据 |
 |---|---|---|
 | 区域 | `nrt` → `sgp` → `sea` → `lax` | 用途；ChatGPT 优先日本/新加坡/美国 |
-| 套餐 | 最便宜且 RAM ≥ 1024MB | 够跑 Xray + Hysteria2 |
+| 套餐 | 最便宜且 RAM ≥ 1024MB（`--purpose budget` 时 ≥512MB） | 自动排除 IPv6-only 和 free 档 |
 | 系统 | 最新 Debian | 包管理稳定、用户态统一 |
 | 名称 | `<区域><序号>` | 如 `nrt1`，重名自动 +1 |
 | 客户端 | `phone` | |
@@ -105,6 +105,13 @@ vpsctl reboot jp1 / snapshot jp1 --desc before-upgrade / destroy jp1
 
 模板套用流程：`scp 模板 → 服务器上 vpnctl sub --template → 拉回 clash.yaml`。
 模板里只有节点定义和分组成员会被替换，规则集与规则原样保留。
+
+## IP 是固定的吗
+
+- 实例的 IPv4 在**实例生命周期内固定**，销毁重建才会变。
+- 绑定域名前请接受这一点；要跨实例保留同一 IP，只能买 Vultr 的 **Reserved IP**（付费增值）。
+- 订阅里写的是 IP，所以**重建后必须重新生成订阅**，旧链接里的 IP 会失效。
+- IPv6 默认关闭（`--ipv6` 才开），避免服务器出站优先走 v6 导致出口地区判断漂移。
 
 ## 状态与幂等
 

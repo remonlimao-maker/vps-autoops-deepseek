@@ -532,10 +532,16 @@ resolve_region() {
   printf '%s' "$(printf '%s\n' "$avail" | head -n 1)"
 }
 
-# resolve_plan REGION [MIN_RAM_MB] -> plan id (cheapest that fits)
+# resolve_plan REGION MIN_RAM -> plan id (cheapest that actually has IPv4)
+#
+# Two traps this avoids:
+#   *vc2-*-v6   IPv6-only plans are cheaper but have NO IPv4 at all
+#   *-free      promotional plans with unclear limits
 resolve_plan() {
   local region="$1" min_ram="${2:-1024}"
   vultr_plans | awk -F'|' -v r="$region" -v m="$min_ram" '
+    $1 ~ /-v6$/ || $1 ~ /ipv6/ { next }
+    $1 ~ /-free$/ { next }
     {
       split($6, regions, ","); ok = 0
       for (i in regions) if (regions[i] == r) ok = 1
@@ -620,7 +626,9 @@ EOF
   region="$GO_REGION"
   [ "$region" = "auto" ] && region="$(resolve_region "$GO_PURPOSE")"
   plan="$GO_PLAN"
-  [ "$plan" = "auto" ] && plan="$(resolve_plan "$region" 1024)"
+  local min_ram=1024
+  [ "$GO_PURPOSE" = "budget" ] && min_ram=512
+  [ "$plan" = "auto" ] && plan="$(resolve_plan "$region" "$min_ram")"
   os_id="$GO_OS"
   [ "$os_id" = "auto" ] && os_id="$(resolve_os debian)"
   name="$GO_NAME"

@@ -795,6 +795,37 @@ host_out="$(VULTR_API_KEY=dummy bash "$AP" --host root@203.0.113.9 --dry-run 2>&
 assert_contains "$host_out" "deploy root@203.0.113.9" "an existing host skips creation"
 
 # ---------------------------------------------------------------------------
+group "24. skill package validity"
+validate_skill() {
+  local dir="$1" base; base="$(basename "$dir")"
+  python3 - "$dir/SKILL.md" "$base" <<'PYV'
+import re, sys, pathlib
+path, expect = sys.argv[1], sys.argv[2]
+text = pathlib.Path(path).read_text()
+m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+if not m:
+    print("no-frontmatter"); sys.exit(1)
+fm = m.group(1)
+name = (re.search(r"^name:\s*(.+)$", fm, re.M) or [None, ""])[1].strip()
+desc = (re.search(r"^description:\s*(.+)$", fm, re.M) or [None, ""])[1].strip().strip('"')
+if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", name):
+    print("bad-name"); sys.exit(1)
+if name != expect:
+    print("dir-mismatch"); sys.exit(1)
+if not (0 < len(desc) <= 500):
+    print("bad-description"); sys.exit(1)
+print("ok")
+PYV
+}
+assert_eq "ok" "$(validate_skill "$SKILL_DIR")" "vps-vpn-setup/SKILL.md is a valid package"
+if [ -r "$SKILL_DIR/../vps-provision/SKILL.md" ]; then
+  assert_eq "ok" "$(validate_skill "$SKILL_DIR/../vps-provision")" "vps-provision/SKILL.md is a valid package"
+fi
+for d in references scripts assets tests; do
+  if [ -d "$SKILL_DIR/$d" ]; then pass "resource dir present: $d/"; else fail "resource dir present: $d/"; fi
+done
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s   skipped %s\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

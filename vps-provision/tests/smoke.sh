@@ -184,6 +184,16 @@ assert_eq "2" "$pub_rc" "a key that only passes public endpoints is rejected"
 assert_contains "$pub_out" "invalid" "the failure names the real reason"
 if [ -e "$PUB_HOME/vultr.key" ]; then fail "the bad key is not persisted"; else pass "the bad key is not persisted"; fi
 
+group "14. vultr onboarding guide"
+VG="$SKILL_DIR/references/vultr-setup.md"
+if [ -r "$VG" ]; then pass "vultr-setup guide shipped"; else fail "vultr-setup guide shipped"; fi
+vg_body="$(cat "$VG" 2>/dev/null)"
+for topic in "注册账号" "充值" "Read & Write" "Allow all IPv4" "setup-key" "doctor"; do
+  assert_contains "$vg_body" "$topic" "guide covers: $topic"
+done
+assert_contains "$vg_body" "Invalid API token" "guide documents the token error"
+assert_contains "$vg_body" "Unauthorized IP address" "guide documents the IP-allowlist error"
+
 group "13. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
@@ -192,6 +202,7 @@ if [ "$nums" = "$expected" ]; then
 else
   fail "docs state the real test count" "docs say [$nums], actual is $expected"
 fi
+
 
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s\n' "$PASS" "$FAIL"

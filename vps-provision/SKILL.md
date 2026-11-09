@@ -67,6 +67,9 @@ bash ../vps-vpn-setup/scripts/remote.sh deploy root@<IP> --cn --client phone
 | 凭据 | `VULTR_API_KEY`（Vultr 控制台 → API，**读写**权限） |
 | 费用 | 创建即开始计费；`go` 会先打印 `$X/mo` 再执行 |
 
+**还没有 Vultr 账号？** 从注册、充值到创建 API Key 的完整步骤见
+[`references/vultr-setup.md`](references/vultr-setup.md)（约 10 分钟，含权限选择和常见报错）。
+
 一次性准备（只有这一步需要你动手）：
 
 ```bash

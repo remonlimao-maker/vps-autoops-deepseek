@@ -121,7 +121,7 @@ AI 执行的就是这五步，每一步你都可以问它"现在到哪了"：
 | 你的情况 | 需要准备 |
 |---|---|
 | **已经有一台 VPS** | 服务器 IP + root 密码，或 SSH 密钥 |
-| **没有服务器** | Vultr 账号 + API Key（读写权限）。大约 $3.5/月，无其他费用 |
+| **没有服务器** | Vultr 账号 + API Key（读写权限）。大约 $3.5/月，无其他费用。<br>从注册到拿 Key 的完整步骤：[Vultr 配置指南](vps-provision/references/vultr-setup.md) |
 | **想用手机连** | 装一个客户端（Clash Verge / Shadowrocket / CMFA），见新手向导 |
 
 **不需要**：域名、证书、备案、任何增值服务。

@@ -46,6 +46,7 @@
 
 > 我还没有服务器。请用 `vps-provision` 帮我建一台：需要我的 Vultr API Key（Read & Write），先跑
 > `vpsctl setup-key` 让我粘贴，然后用 `vpsctl go --purpose chatgpt --region <区域> --yes` 一条命令完成。
+> 如果我没有 Vultr 账号，请带我走 `vps-provision/references/vultr-setup.md`：注册、充值、创建 Key（权限选 Read & Write、IP Access 选 Allow all IPv4）。
 
 ## 为什么这样写就能移植
 

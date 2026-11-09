@@ -277,6 +277,21 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 
 `--mirror` 用于 VPS 拉不到 GitHub 的场景；不要自行改成非官方二进制源。
 
+## 交付给第一次用的用户（必须做）
+
+只给链接是不够的。交付时**必须同时给出**：
+
+1. 订阅链接（或 `clash.yaml` 文件路径）
+2. 用户系统对应的客户端：Windows/macOS/Linux → **Clash Verge Rev**；iPhone → Shadowrocket / sing-box；Android → Clash Meta for Android
+3. 导入步骤：客户端里「订阅 → 从 URL 导入 → 粘贴」
+4. 验证方法：浏览器打开 `https://ipinfo.io`，出口是服务器所在地即成功
+5. 关闭方法：关掉系统代理/TUN 开关
+
+完整的分系统步骤见 `references/getting-started.md`（含截图级细节和常见问题）。
+
+**下载客户端的现实问题**：中国大陆直连 GitHub 常常打不开。手机端用 App Store / 应用商店；
+桌面端如果下载不动，先换能上网的环境下载安装包，或用镜像站搜索同名项目。这一点要主动告诉用户。
+
 ## 客户端交付
 
 | 后端 | 客户端 | 导入方式 |
@@ -360,7 +375,8 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `scripts/lib/` — 共享库与 5 个后端（新增后端只需实现同一组 `be_*` 函数，见 `references/extending.md`）
 - `references/protocol-selection.md` — 选型与网络环境判断
 - `references/agent-adapters.md` — 多 Agent / 多模型适配矩阵
-- `references/client-setup.md` — 各平台客户端详解
+- `references/getting-started.md` — **第一次使用**：分系统安装客户端、导入订阅、验证
+- `references/client-setup.md` — 各协议对应的客户端详解
 - `references/troubleshooting.md` — 排障手册
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流

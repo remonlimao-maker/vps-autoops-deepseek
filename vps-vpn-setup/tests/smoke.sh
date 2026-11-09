@@ -718,6 +718,21 @@ kill "$SRV" 2>/dev/null
 wait "$SRV" 2>/dev/null
 
 # ---------------------------------------------------------------------------
+group "21. beginner onboarding"
+GS="$SKILL_DIR/references/getting-started.md"
+if [ -r "$GS" ]; then pass "getting-started guide shipped"; else fail "getting-started guide shipped"; fi
+gs_body="$(cat "$GS" 2>/dev/null)"
+for osname in Windows macOS Linux iPhone Android; do
+  assert_contains "$gs_body" "$osname" "onboarding covers $osname"
+done
+assert_contains "$gs_body" "Clash Verge Rev" "names a cross-platform client"
+assert_contains "$gs_body" "ipinfo.io" "tells the user how to verify"
+assert_contains "$gs_body" "从 URL 导入" "explains importing the subscription URL"
+assert_contains "$(cat "$SKILL_DIR/SKILL.md")" "getting-started.md" "SKILL.md points at the guide"
+assert_contains "$(cat "$SKILL_DIR/assets/ENTRY-PROMPT.md")" "客户端安装" "entry prompt requires client steps"
+assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "第一次使用" "the delivered info.txt tells a beginner what to do"
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s   skipped %s\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

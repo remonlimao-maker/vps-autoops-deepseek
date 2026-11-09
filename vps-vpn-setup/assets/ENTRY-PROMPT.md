@@ -16,7 +16,7 @@
 > 3. 先帮我连好 SSH：`bash vps-vpn-setup/scripts/remote.sh connect root@<IP>`，确认密钥登录、sudo、系统版本都可用。
 > 4. 跑**只读**检查：`probe`、`plan`、`check-sites`，把「将要改什么、风险是什么、怎么回滚」列给我，**等我授权**。
 > 5. 拿到授权后连续执行完整部署与验证，不要每一步都来问我；失败就按 `references/troubleshooting.md` 处理。
-> 6. 最后交付：订阅链接（或文件路径）+ 导入方式 + 一条回滚命令。
+> 6. 最后交付：订阅链接（或文件路径）+ **按我的系统给出客户端安装和导入步骤**（Mac/Windows/Linux/手机）+ 验证方法 + 一条回滚命令。
 >
 > 约束：
 > - 不要让我手动敲命令，你直接执行。
@@ -34,7 +34,7 @@
 > 3. Establish SSH first: `bash vps-vpn-setup/scripts/remote.sh connect root@<IP>` and confirm key auth, sudo and OS.
 > 4. Run the read-only checks (`probe`, `plan`, `check-sites`), then show me exactly what will change, the risks and the rollback, and **wait for my authorization**.
 > 5. After authorization, execute the full deployment and verification without asking at every step; use `references/troubleshooting.md` if something fails.
-> 6. Deliver: the subscription link (or file path), how to import it, and one rollback command.
+> 6. Deliver: the subscription link (or file path), **client install + import steps for my OS** (macOS/Windows/Linux/mobile), how to verify, and one rollback command.
 >
 > Rules: do not make me type commands; never print private keys, passwords or subscription bodies; no destructive action (destroy, SSH port change) without my explicit approval.
 

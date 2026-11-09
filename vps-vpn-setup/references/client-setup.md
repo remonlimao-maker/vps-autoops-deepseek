@@ -1,5 +1,8 @@
 # 客户端配置详解
 
+> 第一次使用、不知道装什么？先看 [`getting-started.md`](getting-started.md)（按 Windows / macOS / Linux / iOS / Android 分步写）。
+> 本文件是各协议对应的客户端细节，适合已经装好客户端的人。
+
 服务器端只负责生成文件；能否用起来取决于客户端是否导入正确。导出物固定放在 `~/vpn-clients/<backend>/<name>/`。
 
 取回本地：

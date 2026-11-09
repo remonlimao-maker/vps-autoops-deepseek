@@ -304,6 +304,7 @@ cmd_ssh() {
 
 # --- create ----------------------------------------------------------------
 CREATE_NAME=""; CREATE_REGION=""; CREATE_PLAN=""; CREATE_OS=""; CREATE_KEY_FILE=""; CREATE_NO_WAIT=0
+CREATE_IPV6=0
 
 parse_create() {
   while [ "$#" -gt 0 ]; do
@@ -314,6 +315,7 @@ parse_create() {
       --os) CREATE_OS="${2:-}"; shift 2 ;;
       --ssh-key-file) CREATE_KEY_FILE="${2:-}"; shift 2 ;;
       --no-wait) CREATE_NO_WAIT=1; shift ;;
+      --ipv6) CREATE_IPV6=1; shift ;;
       --cn) UP_CN=1; shift ;;
       --client) UP_CLIENT="${2:-}"; shift 2 ;;
       *) die "$CMD: unexpected argument '$1'" ;;
@@ -357,6 +359,7 @@ do_create() {
   printf '  plan      %s%s\n' "$CREATE_PLAN" "${price:+ (\$$price/mo)}" >&2
   printf '  os_id     %s\n' "$CREATE_OS" >&2
   printf '  ssh key   %s\n' "$key_file" >&2
+  printf '  ipv6      %s\n' "$([ "$CREATE_IPV6" = "1" ] && printf enabled || printf 'disabled (IPv4 only)')" >&2
   confirm "Create this instance? It will start billing immediately."
 
   if [ "$DRY_RUN" = "1" ]; then
@@ -375,7 +378,7 @@ do_create() {
   fi
 
   local id
-  id="$(vultr_create "$CREATE_REGION" "$CREATE_PLAN" "$CREATE_OS" "$CREATE_NAME" "$key_id" "$user_data")"
+  id="$(vultr_create "$CREATE_REGION" "$CREATE_PLAN" "$CREATE_OS" "$CREATE_NAME" "$key_id" "$user_data" "$CREATE_IPV6")"
   [ -n "$id" ] || die "provider did not return an instance id"
   log_ok "instance created: $id"
 

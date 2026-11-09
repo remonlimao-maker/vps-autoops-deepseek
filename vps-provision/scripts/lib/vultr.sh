@@ -234,16 +234,17 @@ print(json.load(sys.stdin).get("ssh_key", {}).get("id", ""))
   printf '%s' "$id"
 }
 
-# vultr_create REGION PLAN OS_ID LABEL KEY_ID [USER_DATA_B64] -> instance id
+# vultr_create REGION PLAN OS_ID LABEL KEY_ID [USER_DATA_B64] [IPV6] -> instance id
 #
 # USER_DATA is the belt to sshkey_ids' braces: Vultr can drop a key that was
 # registered seconds before the instance, and then you have no way in at all.
 vultr_create() {
-  local region="$1" plan="$2" os_id="$3" label="$4" key_id="$5" user_data="${6:-}"
+  local region="$1" plan="$2" os_id="$3" label="$4" key_id="$5" user_data="${6:-}" ipv6="${7:-0}"
   local body ud=""
   if [ -n "$user_data" ]; then ud="$(printf ',"user_data":%s' "$(json_str "$user_data")")"; fi
-  body="$(printf '{"region":%s,"plan":%s,"os_id":%s,"label":%s,"hostname":%s,"sshkey_ids":[%s],"backups":"disabled","enable_ipv6":true%s}' \
-    "$(json_str "$region")" "$(json_str "$plan")" "$os_id" "$(json_str "$label")" "$(json_str "$label")" "$(json_str "$key_id")" "$ud")"
+  body="$(printf '{"region":%s,"plan":%s,"os_id":%s,"label":%s,"hostname":%s,"sshkey_ids":[%s],"backups":"disabled","enable_ipv6":%s%s}' \
+    "$(json_str "$region")" "$(json_str "$plan")" "$os_id" "$(json_str "$label")" "$(json_str "$label")" "$(json_str "$key_id")" \
+    "$([ "$ipv6" = "1" ] && printf true || printf false)" "$ud")"
   vultr_api POST /instances "$body" | _py '
 import json,sys
 print(json.load(sys.stdin).get("instance", {}).get("id", ""))

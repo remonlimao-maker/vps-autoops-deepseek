@@ -6,6 +6,37 @@
 > **前提**：你需要先能打开客户端官网下载。中国大陆直连 GitHub 可能很慢或打不开——
 > 手机端优先用 App Store / 应用商店；桌面端见下面的 **Watt Toolkit 加速**。
 
+## 省事做法：让工具帮你装（可选）
+
+不想一步步点？在本仓库目录下跑一条命令：
+
+```bash
+cd vps-vpn-setup
+./scripts/clientctl all "<订阅链接>"
+```
+
+它会依次：检测系统和架构 → 从官方 release 下载对应安装包 → 校验 sha256 →
+安装 → 用 `clash://` 深链接把订阅推进客户端。
+
+| 系统 | 它会做什么 |
+|---|---|
+| macOS | 下载 `.dmg` → 装到 `/Applications` → 打开深链接导入 |
+| Linux | 下载 `AppImage` → 装到 `~/.local/bin` → `xdg-open` 导入 |
+| Windows | 下载 `.exe` 到 `~/Downloads`（需要你双击运行） |
+
+先看它要做什么、不动手：
+
+```bash
+./scripts/clientctl detect                 # 我是什么系统、装没装
+./scripts/clientctl install --dry-run      # 会下哪个包
+./scripts/clientctl import "<链接>" --dry-run   # 会打开什么深链接
+```
+
+> 深链接格式是 `clash://install-config?url=...`，Clash Verge 系客户端支持。
+> 如果客户端版本不认，退回下面的手动步骤。
+
+自动装失败或想自己控制时，按下面的分系统步骤走。
+
 ## 第 0 步：打不开 GitHub 怎么办
 
 大多数客户端只发布在 GitHub。如果你的网络打不开 GitHub，**先用 Watt Toolkit 把安装包下下来**，

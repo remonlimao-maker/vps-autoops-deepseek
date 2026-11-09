@@ -128,6 +128,16 @@ AI 执行的就是这五步，每一步你都可以问它"现在到哪了"：
 里面有：Windows / macOS / Linux / iPhone / Android 各自的安装和导入步骤、
 本地 yaml 文件怎么改、怎么验证成功、常见问题。
 
+**想省事**：如果你的 AI 就跑在这台电脑上，让它代劳：
+
+```bash
+cd vps-vpn-setup
+./scripts/clientctl all "<订阅链接>"
+```
+
+macOS/Linux 会自动下载安装包、校验 sha256、装好，并用 `clash://` 深链接把订阅推进客户端；
+Windows 只下载安装包，需要你双击。加 `--dry-run` 可以先看它会做什么。
+
 ---
 
 ## 进阶：直接敲命令

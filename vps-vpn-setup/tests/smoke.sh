@@ -745,6 +745,38 @@ assert_contains "$gs_body" "Tab" "guide warns about tabs vs spaces"
 assert_contains "$gs_body" "profile-template.example.yaml" "guide points at the annotated example"
 
 # ---------------------------------------------------------------------------
+group "22. local client helper"
+CC="$SCRIPTS/clientctl"
+assert_exit 0 "clientctl detect runs" bash "$CC" detect
+cc_json="$(bash "$CC" detect --json 2>/dev/null)"
+printf '%s\n' "$cc_json" > "$TMP/cc.json"
+if python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["os"] in ("macos","linux","windows");assert d["arch"] in ("aarch64","x64");assert isinstance(d["installed"],bool)' "$TMP/cc.json" 2>/dev/null; then
+  pass "clientctl detect --json parses"
+else
+  fail "clientctl detect --json parses" "$cc_json"
+fi
+
+link="$(bash "$CC" import 'http://1.2.3.4:27008/tok/clash.yaml' --name phone --dry-run 2>&1)"
+assert_contains "$link" "clash://install-config?url=http%3A%2F%2F1.2.3.4%3A27008%2Ftok%2Fclash.yaml" "import builds a clash:// deep link"
+assert_contains "$link" "name=phone" "deep link carries the profile name"
+
+cat > "$TMP/release.json" <<'JSON'
+{"tag_name":"v9.9.9","assets":[
+ {"name":"Clash.Verge_9.9.9_aarch64.dmg","browser_download_url":"https://example.invalid/a.dmg","size":100,"digest":"sha256:aa"},
+ {"name":"Clash.Verge_9.9.9_x64.dmg","browser_download_url":"https://example.invalid/x.dmg","size":100,"digest":"sha256:bb"},
+ {"name":"Clash.Verge_9.9.9_amd64.AppImage","browser_download_url":"https://example.invalid/l.AppImage","size":100,"digest":"sha256:cc"},
+ {"name":"Clash.Verge_9.9.9_x64-setup.exe","browser_download_url":"https://example.invalid/w.exe","size":100,"digest":"sha256:dd"}
+]}
+JSON
+pick="$(bash "$CC" install --dry-run --release-json "$TMP/release.json" 2>&1)"
+assert_contains "$pick" "选中" "install picks an asset from the release"
+case "$(uname -s)" in
+  Darwin) assert_contains "$pick" ".dmg" "macOS picks a dmg" ;;
+  Linux)  assert_contains "$pick" "AppImage" "linux picks an AppImage" ;;
+esac
+assert_contains "$pick" "dry run" "install --dry-run downloads nothing"
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s   skipped %s\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# clientctl — 在「你自己的电脑」上装客户端并导入订阅。
+#
+# 服务端那套（vpnctl）跑在 VPS 上；这个是给本机用的，解决新手最后一步：
+#   detect  看看本机是什么系统、有没有装客户端
+#   install 从官方 release 下载、校验 sha256、装好
+#   import  用 clash:// 深链接把订阅直接灌进客户端
+#   all     一条命令做完上面三件事
+#
+# 用法：
+#   ./clientctl detect
+#   ./clientctl install            # macOS / Linux 会真的装
+#   ./clientctl import <订阅链接> --name phone
+#   ./clientctl all <订阅链接>
+
+set -uo pipefail
+
+REPO="clash-verge-rev/clash-verge-rev"
+APP_NAME="Clash Verge"
+DRY_RUN=0
+JSON=0
+NAME="phone"
+CLIENT="clash-verge"
+RELEASE_JSON=""
+DOWNLOAD_ONLY=""
+
+if [ -t 2 ]; then C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[2m'; C_RST=$'\033[0m'
+else C_OK=''; C_WARN=''; C_ERR=''; C_DIM=''; C_RST=''; fi
+ok()   { printf '%sok%s   %s\n' "$C_OK" "$C_RST" "$*" >&2; }
+warn() { printf '%s!!%s   %s\n' "$C_WARN" "$C_RST" "$*" >&2; }
+info() { printf '%s--%s   %s\n' "$C_DIM" "$C_RST" "$*" >&2; }
+die()  { printf '%serr%s  %s\n' "$C_ERR" "$C_RST" "$*" >&2; exit 2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+os_name() {
+  case "$(uname -s)" in
+    Darwin) printf 'macos' ;;
+    Linux)  printf 'linux' ;;
+    MINGW*|MSYS*|CYGWIN*) printf 'windows' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+arch_name() {
+  case "$(uname -m)" in
+    arm64|aarch64) printf 'aarch64' ;;
+    x86_64|amd64) printf 'x64' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+app_path() {
+  case "$(os_name)" in
+    macos) printf '/Applications/%s.app' "$APP_NAME" ;;
+    *) printf '' ;;
+  esac
+}
+
+installed() {
+  case "$(os_name)" in
+    macos)
+      [ -d "/Applications/$APP_NAME.app" ] || [ -d "$HOME/Applications/$APP_NAME.app" ]
+      ;;
+    linux)
+      have clash-verge || have "clash-verge-rev" || [ -x "$HOME/.local/bin/clash-verge" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# 极简百分号编码，给 clash:// 的 url 参数用
+urlencode() {
+  local s="$1" out="" c code i=0 n=${#1}
+  while [ "$i" -lt "$n" ]; do
+    c="${s:$i:1}"
+    case $c in
+      [a-zA-Z0-9._~-]) out="$out$c" ;;
+      *) code=$(LC_ALL=C printf '%d' "'$c" 2>/dev/null) || code=63
+         out="$out$(printf '%%%02X' "$code")" ;;
+    esac
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+
+deep_link() {
+  printf 'clash://install-config?url=%s&name=%s' "$(urlencode "$1")" "$(urlencode "$2")"
+}
+
+cmd_detect() {
+  local os arch inst; os="$(os_name)"; arch="$(arch_name)"
+  installed && inst=true || inst=false
+  if [ "$JSON" = "1" ]; then
+    printf '{"os":"%s","arch":"%s","client":"%s","installed":%s}\n' "$os" "$arch" "$CLIENT" "$inst"
+    return 0
+  fi
+  printf '系统      %s\n' "$os"
+  printf '架构      %s\n' "$arch"
+  printf '客户端    %s\n' "$CLIENT"
+  printf '已安装    %s\n' "$([ "$inst" = "true" ] && echo 是 || echo 否)"
+  [ "$inst" = "true" ] || printf '下一步    %s\n' "./clientctl install"
+}
+
+# 从 release JSON 里挑出本平台的资产：输出 "name<TAB>url<TAB>size<TAB>digest"
+pick_asset() {
+  local file="$1" os arch
+  os="$(os_name)"; arch="$(arch_name)"
+  python3 - "$file" "$os" "$arch" <<'PY'
+import json, sys
+path, os_name, arch = sys.argv[1], sys.argv[2], sys.argv[3]
+d = json.load(open(path))
+assets = d.get("assets", [])
+def score(a):
+    n = a["name"].lower()
+    if os_name == "macos":
+        if not n.endswith(".dmg"): return -1
+        return 3 if arch in n else (1 if "universal" in n else 0)
+    if os_name == "linux":
+        if n.endswith(".appimage"):
+            return 3 if arch in n else (1 if "universal" in n else 0)
+        if n.endswith(".deb"):
+            return 2 if arch in n else 0
+        return -1
+    if os_name == "windows":
+        if not n.endswith(".exe"): return -1
+        return 3 if arch in n else 1
+    return -1
+best = max(assets, key=score, default=None)
+if best is None or score(best) <= 0:
+    sys.exit(1)
+print("%s\t%s\t%s\t%s" % (best["name"], best["browser_download_url"], best.get("size", 0), best.get("digest", "")))
+PY
+}
+
+fetch_release() {
+  local out="$1"
+  if [ -n "$RELEASE_JSON" ]; then
+    cp "$RELEASE_JSON" "$out"; return 0
+  fi
+  have curl || die "curl is required"
+  curl -fsSL --max-time 30 "https://api.github.com/repos/$REPO/releases/latest" -o "$out" \
+    || die "cannot reach GitHub API (需要能访问 GitHub；国内可先开 Watt Toolkit 的 GitHub 加速)"
+}
+
+cmd_install() {
+  local tmp; tmp="$(mktemp -d)"
+  fetch_release "$tmp/release.json"
+  local asset; asset="$(pick_asset "$tmp/release.json")" || die "no asset for $(os_name)/$(arch_name)"
+  IFS=$'\t' read -r name url size digest <<EOF
+$asset
+EOF
+  info "选中 $name ($(( size / 1024 / 1024 ))MB)"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    info "dry run: would download $url"
+    rm -rf "$tmp"; return 0
+  fi
+
+  curl -fL --retry 3 --connect-timeout 15 -o "$tmp/$name" "$url" || die "download failed"
+  if [ -n "$digest" ]; then
+    local want got
+    want="${digest#sha256:}"
+    got="$(shasum -a 256 "$tmp/$name" 2>/dev/null | awk '{print $1}')"
+    [ -n "$got" ] || got="$(sha256sum "$tmp/$name" | awk '{print $1}')"
+    [ "$want" = "$got" ] || { rm -rf "$tmp"; die "sha256 mismatch: expected $want got $got"; }
+    ok "校验通过"
+  else
+    warn "该版本没有提供 sha256，跳过校验"
+  fi
+
+  case "$(os_name)" in
+    macos)
+      local mnt; mnt="$(hdiutil attach -nobrowse -quiet "$tmp/$name" | tail -1 | awk '{print $NF}')"
+      [ -n "$mnt" ] || { rm -rf "$tmp"; die "could not mount the dmg"; }
+      local app; app="$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)"
+      local dest="/Applications"
+      [ -w "$dest" ] || dest="$HOME/Applications"
+      mkdir -p "$dest"
+      rm -rf "$dest/$(basename "$app")"
+      cp -R "$app" "$dest/" || { hdiutil detach "$mnt" -quiet; rm -rf "$tmp"; die "copy failed"; }
+      hdiutil detach "$mnt" -quiet
+      ok "已安装到 $dest/$(basename "$app")"
+      ;;
+    linux)
+      if [ -n "$DOWNLOAD_ONLY" ]; then
+        cp "$tmp/$name" "$DOWNLOAD_ONLY/"; ok "saved to $DOWNLOAD_ONLY/$name"
+      elif [ "${name##*.}" = "AppImage" ] || [ "${name##*.}" = "appimage" ]; then
+        mkdir -p "$HOME/.local/bin"
+        install -m 0755 "$tmp/$name" "$HOME/.local/bin/clash-verge"
+        ok "已安装到 ~/.local/bin/clash-verge"
+        case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) warn "把 ~/.local/bin 加进 PATH" ;; esac
+      else
+        warn "deb 需要 sudo，已保存到 $tmp/$name（临时目录），请手动安装"
+        cp "$tmp/$name" "$HOME/Downloads/" 2>/dev/null && ok "已复制到 ~/Downloads/$name"
+      fi
+      ;;
+    *)
+      warn "Windows 请手动运行安装包"
+      cp "$tmp/$name" "$HOME/Downloads/" 2>/dev/null && ok "已下载到 ~/Downloads/$name"
+      ;;
+  esac
+  rm -rf "$tmp"
+}
+
+cmd_import() {
+  local url="$1"
+  [ -n "$url" ] || die "import 需要订阅链接"
+  local link; link="$(deep_link "$url" "$NAME")"
+  if [ "$DRY_RUN" = "1" ]; then
+    info "dry run: $link"
+    return 0
+  fi
+  installed || warn "客户端似乎还没装，深链接可能打不开"
+  case "$(os_name)" in
+    macos)
+      open "$link" 2>/dev/null || die "打开深链接失败；可以手动在客户端里「从 URL 导入」"
+      ;;
+    linux)
+      xdg-open "$link" >/dev/null 2>&1 || die "打开深链接失败；请手动导入"
+      ;;
+    *)
+      cmd //c start "" "$link" 2>/dev/null || die "请手动把链接粘进客户端"
+      ;;
+  esac
+  ok "已请求客户端导入订阅（名字：$NAME）"
+  info "客户端里确认：订阅出现在列表里 → 设为当前 → 选节点 → 开系统代理/TUN"
+}
+
+cmd_all() {
+  local url="$1"
+  cmd_detect
+  if ! installed; then
+    printf '\n' >&2
+    cmd_install
+  fi
+  [ -n "$url" ] && cmd_import "$url"
+}
+
+usage() {
+  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+CMD="${1:-detect}"; shift 2>/dev/null || true
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --name) NAME="${2:-phone}"; shift 2 ;;
+    --client) CLIENT="${2:-clash-verge}"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --json) JSON=1; shift ;;
+    --release-json) RELEASE_JSON="${2:-}"; shift 2 ;;
+    --download-to) DOWNLOAD_ONLY="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) die "unknown option: $1" ;;
+    *) URL="$1"; shift ;;
+  esac
+done
+
+case $CMD in
+  detect) cmd_detect ;;
+  install) cmd_install ;;
+  import) cmd_import "${URL:-}" ;;
+  all) cmd_all "${URL:-}" ;;
+  help|-h) usage ;;
+  *) usage >&2; die "unknown command: $CMD" ;;
+esac

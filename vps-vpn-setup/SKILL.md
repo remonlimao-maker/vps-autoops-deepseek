@@ -287,6 +287,15 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 4. 验证方法：浏览器打开 `https://ipinfo.io`，出口是服务器所在地即成功
 5. 关闭方法：关掉系统代理/TUN 开关
 
+如果 Agent 就运行在用户这台电脑上，可以代劳最后一步：
+
+```bash
+bash scripts/clientctl detect                      # 先看系统和是否已装
+bash scripts/clientctl all "<订阅链接>"             # 下载 + 安装 + 深链接导入
+```
+
+macOS/Linux 能真的装；Windows 只下载安装包。装完仍要提醒用户手动点一下「设为当前」「系统代理」。
+
 完整的分系统步骤见 `references/getting-started.md`（含截图级细节和常见问题）。
 
 **下载客户端的现实问题**：中国大陆直连 GitHub 常常打不开。手机端用 App Store / 应用商店；

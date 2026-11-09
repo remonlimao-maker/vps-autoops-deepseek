@@ -513,8 +513,14 @@ cmd_bootstrap() {
   log_info "installing vpnctl to $dest"
   run mkdir -p "$dest"
   run cp -a "$SCRIPT_DIR/vpnctl" "$dest/vpnctl"
+  # Replace, do not merge: `cp -a src dest` nests into dest when it already
+  # exists, which silently leaves the old scripts in place on a re-bootstrap.
+  run rm -rf "$dest/lib"
   run cp -a "$LIB_DIR" "$dest/lib"
-  if [ -d "$SCRIPT_DIR/../assets" ]; then run cp -a "$SCRIPT_DIR/../assets" "$dest/assets"; fi
+  if [ -d "$SCRIPT_DIR/../assets" ]; then
+    run rm -rf "$dest/assets"
+    run cp -a "$SCRIPT_DIR/../assets" "$dest/assets"
+  fi
   run chmod 755 "$dest/vpnctl"
   run ln -sf "$dest/vpnctl" "$VPNCTL_BIN_PATH"
   log_ok "installed: $VPNCTL_BIN_PATH"

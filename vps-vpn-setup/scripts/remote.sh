@@ -125,6 +125,12 @@ cmd_probe() { cmd_run probe --json; }
 # One command from the laptop: ship, provision, fetch the client files.
 cmd_deploy() {
   local dest="${1:-./vpn-clients}"
+  # options belong before the action word; catching this here beats silently
+  # deploying with defaults and pulling into a directory named "--cn".
+  case $dest in
+    -*) die "deploy: '$dest' looks like an option. Put options before the action:
+       remote.sh --cn -c phone deploy root@host" ;;
+  esac
   log "deploying to $TARGET (backend=$DEPLOY_BACKEND client=$DEPLOY_CLIENT)"
   cmd_push
   local args="--backend $DEPLOY_BACKEND --client $DEPLOY_CLIENT"
@@ -188,6 +194,9 @@ REMOTE
 
 cmd_pull() {
   local dest="${1:-./vpn-clients}"
+  case $dest in
+    -*) die "pull: '$dest' looks like an option. Put options before the action." ;;
+  esac
   mkdir -p "$dest"
   log "copying client artifacts from $TARGET to $dest"
   scp_run -r "$TARGET:~/vpn-clients/." "$dest/" 2>/dev/null \

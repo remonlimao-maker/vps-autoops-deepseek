@@ -367,8 +367,15 @@ do_create() {
     key_id="$(vultr_ensure_key "$key_file" "$key_name")"
   fi
 
+  # cloud-init fallback: write the same key into the image itself
+  local user_data=""
+  if [ -n "$key_id" ] && [ -r "$key_file" ]; then
+    user_data="$(printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$(cat "$key_file")" \
+      | base64 | tr -d '\n')"
+  fi
+
   local id
-  id="$(vultr_create "$CREATE_REGION" "$CREATE_PLAN" "$CREATE_OS" "$CREATE_NAME" "$key_id")"
+  id="$(vultr_create "$CREATE_REGION" "$CREATE_PLAN" "$CREATE_OS" "$CREATE_NAME" "$key_id" "$user_data")"
   [ -n "$id" ] || die "provider did not return an instance id"
   log_ok "instance created: $id"
 

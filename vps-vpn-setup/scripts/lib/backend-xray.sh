@@ -223,8 +223,12 @@ xr_ensure_keys() {
           { "$XR_BIN" x25519 2>/dev/null || true; } > "$key.raw"
         )
         local priv pub
-        priv="$(sed -nE 's/^(Private ?[Kk]ey:?|PrivateKey:) *//p' "$key.raw" | head -n 1)"
-        pub="$(sed -nE 's/^(Password:|Public ?[Kk]ey:?|PublicKey:) *//p' "$key.raw" | head -n 1)"
+        # Formats seen in the wild:
+        #   old:    "Private key: ..."      / "Public key: ..."
+        #   24.x:   "PrivateKey: ..."       / "Password: ..."
+        #   26.x:   "PrivateKey: ..."       / "Password (PublicKey): ..."
+        priv="$(sed -nE 's/^(Private ?[Kk]ey|PrivateKey)[^:]*: *//p' "$key.raw" | head -n 1)"
+        pub="$(sed -nE 's/^(Password|Public ?[Kk]ey|PublicKey)[^:]*: *//p' "$key.raw" | head -n 1)"
         [ -n "$priv" ] || die "cannot parse x25519 output from $XR_BIN"
         [ -n "$pub" ] || die "cannot parse the REALITY public key from $XR_BIN"
         printf '%s' "$priv" > "$key"
@@ -425,7 +429,7 @@ EOF
 # --- install ---------------------------------------------------------------
 
 be_install() {
-  meta_init xray
+  meta_init "$BE_ID"
   case $(be_mode) in
     reality)
       if port_listening "$XR_PORT" tcp; then

@@ -9,7 +9,7 @@
 | Skill | 作用 | 状态 |
 |---|---|---|
 | [`vps-provision/`](vps-provision/README.md) | 创建云主机（Vultr API）：区域/套餐查询、建机、等 SSH、快照、销毁，一条 `go` 命令完成建机 + 配置 | ✅ 52 项测试 |
-| [`vps-vpn-setup/`](vps-vpn-setup/README.md) | 部署与运维 VPN（WireGuard / Xray REALITY / SS2022 / Hysteria2 / Trojan），多节点 + 订阅交付、分流规则、接管已有节点、防锁死加固 | ✅ 226 项测试 |
+| [`vps-vpn-setup/`](vps-vpn-setup/README.md) | 部署与运维 VPN（WireGuard / Xray REALITY / SS2022 / Hysteria2 / Trojan），多节点 + 订阅交付、分流规则、接管已有节点、防锁死加固 | ✅ 235 项测试 |
 
 > **使用边界**：本仓库仅供个人在自己拥有或获授权的服务器上使用。请自行确认所在地法律、云厂商服务条款允许该用途；作者不对使用后果负责。详见 [SECURITY.md](SECURITY.md)。
 

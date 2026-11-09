@@ -735,6 +735,14 @@ assert_contains "$gs_body" "Watt Toolkit" "onboarding solves the 'cannot reach G
 assert_contains "$gs_body" "steampp.net" "links the official Watt Toolkit page"
 assert_contains "$gs_body" "第 0 步" "puts the GitHub workaround before everything else"
 assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "Watt Toolkit" "the delivered info.txt mentions the workaround too"
+assert_contains "$gs_body" "方式二：用本地 yaml 文件" "guide explains the local yaml delivery mode"
+for blk in proxies proxy-groups rule-providers rules; do
+  assert_contains "$gs_body" "$blk:" "guide explains the $blk block"
+done
+assert_contains "$gs_body" "从文件导入" "guide shows how to import a local file"
+assert_contains "$gs_body" "最前面" "guide warns that new rules must go first"
+assert_contains "$gs_body" "Tab" "guide warns about tabs vs spaces"
+assert_contains "$gs_body" "profile-template.example.yaml" "guide points at the annotated example"
 
 # ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"

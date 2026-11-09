@@ -96,6 +96,80 @@ mihomo -d . -f config.yaml
 3. 回首页 → **已停止** → 点一下启动 → 首次会请求 VPN 权限，允许
 4. **代理** 页面选节点
 
+## 方式二：用本地 yaml 文件（不是订阅链接）
+
+拿到配置有两种方式，二选一：
+
+| 方式 | 怎么来 | 适合 |
+|---|---|---|
+| **订阅链接** | 客户端里「从 URL 导入」，服务器更新后客户端点一下同步 | 大多数情况，推荐 |
+| **本地 yaml 文件** | 把 `clash.yaml` 拷到自己电脑，手动导入 | 服务器没开订阅服务、想自己改规则、拉不到链接 |
+
+### 文件里有什么
+
+一个 Clash 配置就是四块（参考仓库里的 `assets/profile-template.example.yaml`）：
+
+```yaml
+proxies:            # ① 节点：服务器地址、端口、密码/UUID
+  - name: "reality-phone"
+    type: vless
+    server: 1.2.3.4
+    port: 443
+
+proxy-groups:       # ② 分组：客户端界面上那个下拉框
+  - name: "🚀 节点选择"
+    type: select
+    proxies: ["reality-phone", "DIRECT"]
+
+rule-providers:     # ③ 规则集：从网上拉的黑白名单（可留空）
+  direct:
+    type: http
+    behavior: domain
+    url: "https://.../direct.txt"
+
+rules:              # ④ 规则：从上往下匹配，第一条命中就停
+  - DOMAIN-SUFFIX,deepseek.com,DIRECT
+  - DOMAIN-SUFFIX,chatgpt.com,PROXY
+  - MATCH,PROXY
+```
+
+**只有 `proxies` 是必须的**。其他三块删掉也能用，只是会变成全局代理。
+
+### 新手最常改的三处
+
+**A. 换节点** —— 改 `proxies` 里的 `server` / `port` / `password`。
+`name` 改了的话，`proxy-groups` 和 `rules` 里引用它的地方要一起改。
+
+**B. 改分组** —— `proxy-groups` 里 `proxies` 列表就是下拉框的选项。
+想让某组默认直连，把 `DIRECT` 放到第一位。
+
+**C. 加一条直连规则** —— 必须放在 `rules:` 的**最前面**：
+
+```yaml
+rules:
+  - DOMAIN-SUFFIX,deepseek.com,DIRECT      # ← 加这里
+  - RULE-SET,proxy,🚀 节点选择              # ← 后面的规则会先截获
+  - MATCH,🚀 节点选择
+```
+
+放后面会被 `RULE-SET` 或最后的 `MATCH` 抢先匹配，等于没写。这是最常见的错误。
+
+### 导入本地文件
+
+**Clash Verge Rev**：左侧「订阅 / Profiles」→ 右上 **+** → **从文件导入** → 选 `clash.yaml` → 右键该配置 → **设为当前 / Use**。
+
+导入后同样要选节点、打开「系统代理」或 TUN。
+
+### 三个容易踩的坑
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 导入时报 YAML 解析错误 | 用了 **Tab** 缩进 | 全部改成 2 个空格 |
+| 新增规则不生效 | 加在了 `MATCH` 后面 | 移到 `rules:` 最前面 |
+| 改了节点名就连不上 | `proxy-groups` 还引用旧名字 | 全文替换成新名字 |
+
+> 文件里有节点密码。自己改没问题，别外传、别提交到公开仓库。
+
 ---
 
 ## 验证是否成功

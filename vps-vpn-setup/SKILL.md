@@ -283,7 +283,7 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 
 1. 订阅链接（或 `clash.yaml` 文件路径）
 2. 用户系统对应的客户端：Windows/macOS/Linux → **Clash Verge Rev**；iPhone → Shadowrocket / sing-box；Android → Clash Meta for Android
-3. 导入步骤：客户端里「订阅 → 从 URL 导入 → 粘贴」
+3. 导入步骤：客户端里「订阅 → 从 URL 导入 → 粘贴」；如果给的是本地文件，说明「从文件导入」和 yaml 的四块结构（`proxies` / `proxy-groups` / `rule-providers` / `rules`）
 4. 验证方法：浏览器打开 `https://ipinfo.io`，出口是服务器所在地即成功
 5. 关闭方法：关掉系统代理/TUN 开关
 

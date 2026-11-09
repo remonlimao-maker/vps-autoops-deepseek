@@ -91,13 +91,15 @@ vpnctl sub --name phone --template /root/conf.yaml --serve
 
 ## 全自动工作流（优先）
 
-仓库根目录的 `autopilot.sh` 把下面所有步骤串成一条命令，Agent 优先调它：
+`scripts/autopilot.sh` 把下面所有步骤串成一条命令，Agent 优先调它：
 
 ```bash
-./autopilot.sh --purpose chatgpt                 # 建机 + 部署 + 订阅 + 装本机客户端 + 导入
-./autopilot.sh --host root@1.2.3.4               # 已有机器，只部署和配置本机
-./autopilot.sh --dry-run                         # 先看要做什么
+bash scripts/autopilot.sh --purpose chatgpt        # 建机 + 部署 + 订阅 + 装本机客户端 + 导入
+bash scripts/autopilot.sh --host root@1.2.3.4      # 已有机器，只部署和配置本机
+bash scripts/autopilot.sh --dry-run                # 先看要做什么
 ```
+
+（仓库根目录的 `./autopilot.sh` 是同一个脚本的快捷方式。）
 
 ## 从零开始（连机器都还没有）
 

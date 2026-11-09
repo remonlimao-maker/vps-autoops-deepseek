@@ -778,7 +778,7 @@ assert_contains "$pick" "dry run" "install --dry-run downloads nothing"
 
 # ---------------------------------------------------------------------------
 group "23. autopilot workflow"
-AP="$(dirname "$SKILL_DIR")/autopilot.sh"
+AP="$SCRIPTS/autopilot.sh"
 assert_exit 0 "autopilot --help runs" bash "$AP" --help
 assert_contains "$(bash "$AP" --help 2>&1)" "建机 → 部署 → 出订阅" "help states the whole workflow"
 

@@ -248,6 +248,7 @@ cmd_attach() {
   [ -n "$url" ] || die "attach 需要订阅链接"
   [ -n "$dir" ] || die "这个系统暂不支持自动写入（用 import 走深链接）"
   [ -f "$dir/profiles.yaml" ] || die "找不到 $dir/profiles.yaml —— 先启动一次 Clash Verge，让它生成配置目录"
+  have python3 || die "需要 python3 才能安全地改 YAML（macOS/Linux 一般自带；Windows 请用 WSL 或先安装 Python）"
 
   local uid; uid="$(python3 -c 'import secrets,string;a=string.ascii_letters+string.digits;print("".join(secrets.choice(a) for _ in range(12)))')"
 
@@ -330,6 +331,7 @@ cmd_doctor() {
   printf '客户端      %s（%s）\n' "$CLIENT" "$([ "$inst" = "true" ] && echo 已安装 || echo 未安装)"
   printf '配置目录    %s\n' "${dir:-（本系统未知）}"
   printf '目录可写    %s\n' "$([ "$cfg" = "true" ] && echo 是 || echo 否)"
+  printf 'python3     %s\n' "$(have python3 && echo 有 || echo '没有（attach 需要）')"
   printf '\n能力\n'
   printf '  自动安装客户端   %s\n' "$([ "$(os_name)" = "windows" ] && echo '仅下载安装包' || echo '可以')"
   printf '  深链接导入       %s\n' "$([ "$inst" = "true" ] && echo '可以（依赖客户端响应 clash://）' || echo '客户端未装')"

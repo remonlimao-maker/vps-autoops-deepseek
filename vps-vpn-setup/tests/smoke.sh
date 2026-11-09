@@ -905,6 +905,7 @@ doc_txt="$(bash "$CC" doctor --config-dir "$CV" 2>&1)"
 assert_contains "$doc_txt" "直接写配置" "doctor explains the attach capability"
 assert_contains "$doc_txt" "可以" "doctor confirms attach works with a config dir"
 assert_contains "$doc_txt" "attach" "doctor prints the next command"
+assert_contains "$doc_txt" "python3" "doctor reports the python3 dependency"
 
 # ---------------------------------------------------------------------------
 group "30. root password"

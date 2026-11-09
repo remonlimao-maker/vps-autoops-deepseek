@@ -731,6 +731,10 @@ assert_contains "$gs_body" "从 URL 导入" "explains importing the subscription
 assert_contains "$(cat "$SKILL_DIR/SKILL.md")" "getting-started.md" "SKILL.md points at the guide"
 assert_contains "$(cat "$SKILL_DIR/assets/ENTRY-PROMPT.md")" "客户端安装" "entry prompt requires client steps"
 assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "第一次使用" "the delivered info.txt tells a beginner what to do"
+assert_contains "$gs_body" "Watt Toolkit" "onboarding solves the 'cannot reach GitHub' problem"
+assert_contains "$gs_body" "steampp.net" "links the official Watt Toolkit page"
+assert_contains "$gs_body" "第 0 步" "puts the GitHub workaround before everything else"
+assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "Watt Toolkit" "the delivered info.txt mentions the workaround too"
 
 # ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"

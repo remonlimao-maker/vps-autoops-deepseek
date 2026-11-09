@@ -48,6 +48,7 @@ case "$method $path" in
   "GET /ssh-keys") body='{"ssh_keys":[]}' ;;
   "POST /ssh-keys") body='{"ssh_key":{"id":"key-abc"}}' ;;
   "POST /instances") body='{"instance":{"id":"inst-abc"}}' ;;
+  "GET /instances") body='{"instances":[{"id":"inst-abc","label":"jp1","region":"nrt","plan":"vc2-1c-1gb","status":"active","main_ip":"203.0.113.7","monthly_cost":6},{"id":"inst-old","label":"old","region":"sea","plan":"vc2-1c-1gb","status":"active","main_ip":"203.0.113.8","monthly_cost":6},{"id":"inst-dead","label":"dead","region":"sea","plan":"vc2-1c-1gb","status":"stopped","main_ip":"","monthly_cost":6}],"meta":{"links":{}}}' ;;
   "GET /instances/"*) body='{"instance":{"status":"active","main_ip":"203.0.113.7","label":"jp1","region":"nrt","plan":"vc2-1c-1gb","monthly_cost":6,"date_created":"2026-01-01T00:00:00+00:00"}}' ;;
   DELETE*) body='{}' ;;
   *) body='{}' ;;
@@ -193,6 +194,14 @@ for topic in "注册账号" "充值" "Read & Write" "Allow all IPv4" "setup-key"
 done
 assert_contains "$vg_body" "Invalid API token" "guide documents the token error"
 assert_contains "$vg_body" "Unauthorized IP address" "guide documents the IP-allowlist error"
+
+group "12. cost visibility"
+cost_json="$(bash "$VPSCTL" --json cost 2>/dev/null)"
+assert_contains "$cost_json" '"monthly_total":12.00' "cost totals only the active instances"
+cost_txt="$(bash "$VPSCTL" cost 2>/dev/null)"
+assert_contains "$cost_txt" "合计约 \$12.00" "human output shows the total"
+assert_contains "$cost_txt" "vpsctl destroy" "and tells the user how to stop paying"
+assert_contains "$cost_txt" "stopped" "stopped instances are listed but not billed"
 
 group "13. documented counts"
 expected=$(( PASS + 1 ))

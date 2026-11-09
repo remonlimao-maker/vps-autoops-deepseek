@@ -129,6 +129,19 @@ AI 执行的就是这五步，每一步你都可以问它"现在到哪了"：
 
 **不需要**：域名、证书、备案、任何增值服务。
 
+**关于花钱**：服务器按小时计费，$3.5/月的机型开着一个月就是 $3.5，关掉（销毁）就停止计费。
+随时查看在花多少：
+
+```bash
+bash vps-provision/scripts/vpsctl cost
+```
+
+不用了：
+
+```bash
+bash vps-provision/scripts/vpsctl destroy <机器名> --yes
+```
+
 > 打不开 GitHub 下不了客户端？先装 [Watt Toolkit](https://steampp.net/download) 开 GitHub 加速，
 > 装完客户端再关掉。详见新手向导「第 0 步」。
 

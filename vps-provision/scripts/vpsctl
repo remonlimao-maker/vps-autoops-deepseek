@@ -51,6 +51,7 @@ READ-ONLY
 
 MUTATING
   rotate NAME               Destroy + rebuild with the same plan (use after an IP block)
+  cost                      See what the running instances cost per month
   go     [--purpose chatgpt] [--template auto]
                             ONE command: resolve region/plan/image, create, configure,
                             apply your profile, pull client files
@@ -852,6 +853,48 @@ cmd_rotate() {
   cmd_go
 }
 
+# ---------------------------------------------------------------------------
+# cost: 账号里所有实例每月在花多少钱（不只本地记录的，避免"孤儿"实例）
+# ---------------------------------------------------------------------------
+cmd_cost() {
+  load_provider
+  local plans; plans="$(vultr_plans 2>/dev/null)"
+  local data; data="$(vultr_instances 2>/dev/null)" || data=""
+
+  if [ -z "$data" ]; then
+    printf '拿不到实例列表：检查 API Key 和 IP 白名单\n' >&2
+    return 3
+  fi
+
+  local rows="" total="0" count=0
+  while IFS='|' read -r id label region plan status ip cost; do
+    [ -n "$id" ] || continue
+    count=$((count + 1))
+    case $cost in ''|0|null) cost="$(printf '%s\n' "$plans" | awk -F'|' -v p="$plan" '$1 == p { print $5; exit }')" ;; esac
+    [ -n "$cost" ] || cost=0
+    [ "$status" = "active" ] && total="$(awk -v a="$total" -v b="$cost" 'BEGIN{printf "%.2f", a+b}')"
+    rows="$rows$(printf '%-14s %-16s %-6s %-16s %7s  %s' "$label" "$ip" "$region" "$plan" "\$$cost" "$status")
+"
+  done <<EOF
+$data
+EOF
+
+  if [ "$JSON_OUT" = "1" ]; then
+    printf '{"instances":%s,"monthly_total":%s}\n' "$count" "$total"
+    return 0
+  fi
+
+  [ "$count" -gt 0 ] || { printf '账号里没有实例，每月 $0\n'; return 0; }
+
+  printf '%-14s %-16s %-6s %-16s %7s  %s\n' NAME IP REGION PLAN 月费 STATUS
+  printf '%s' "$rows"
+  printf '\n合计约 $%s / 月（按整月估算，实际按小时计费）\n' "$total"
+  printf '\n不用的机器销毁就停止计费：\n'
+  printf '  vpsctl destroy <名字> --yes\n'
+  printf '要留数据就先快照：\n'
+  printf '  vpsctl snapshot <名字> && vpsctl destroy <名字> --yes\n'
+}
+
 # --- doctor ----------------------------------------------------------------
 cmd_doctor() {
   local fail=0
@@ -891,6 +934,7 @@ case $CMD in
   create)    cmd_create "$@" ;;
   up)        cmd_up "$@" ;;
   go)        cmd_go "$@" ;;
+  cost)      cmd_cost "$@" ;;
   rotate)    cmd_rotate "$@" ;;
   reboot)    cmd_reboot "$@" ;;
   snapshot)  cmd_snapshot "$@" ;;

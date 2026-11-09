@@ -31,10 +31,12 @@
 
 「服务已启动」「端口在监听」都不是完成。安装 ≠ 验收。
 
+交付时还必须说清**费用**（`vpsctl cost`）、给出**销毁命令**，并在用户表示不必要时主动提议销毁。
+
 ## 本地检查（不需要 VPS）
 
 ```bash
-bash vps-provision/tests/smoke.sh      # 62 项断言（假 API，不花钱）
+bash vps-provision/tests/smoke.sh      # 66 项断言（假 API，不花钱）
 bash vps-vpn-setup/tests/smoke.sh      # 288 项断言
 bash vps-vpn-setup/scripts/vpnctl doctor
 bash -n vps-provision/scripts/vpsctl vps-vpn-setup/scripts/vpnctl

@@ -89,6 +89,16 @@ vpnctl sub --name phone --template /root/conf.yaml --serve
 
 完整步骤、安全保证和常见坑见 `references/adopt-existing.md`。
 
+## 全自动工作流（优先）
+
+仓库根目录的 `autopilot.sh` 把下面所有步骤串成一条命令，Agent 优先调它：
+
+```bash
+./autopilot.sh --purpose chatgpt                 # 建机 + 部署 + 订阅 + 装本机客户端 + 导入
+./autopilot.sh --host root@1.2.3.4               # 已有机器，只部署和配置本机
+./autopilot.sh --dry-run                         # 先看要做什么
+```
+
 ## 从零开始（连机器都还没有）
 
 先创建机器，再配置——两步可以合成一条命令：

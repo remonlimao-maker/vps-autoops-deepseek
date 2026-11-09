@@ -777,6 +777,24 @@ esac
 assert_contains "$pick" "dry run" "install --dry-run downloads nothing"
 
 # ---------------------------------------------------------------------------
+group "23. autopilot workflow"
+AP="$(dirname "$SKILL_DIR")/autopilot.sh"
+assert_exit 0 "autopilot --help runs" bash "$AP" --help
+assert_contains "$(bash "$AP" --help 2>&1)" "建机 → 部署 → 出订阅" "help states the whole workflow"
+
+nokey_out="$(VPSCTL_HOME="$TMP/nokey" env -u VULTR_API_KEY bash "$AP" --dry-run 2>&1)"; nokey_rc=$?
+assert_eq "2" "$nokey_rc" "without an API key it stops before doing anything"
+assert_contains "$nokey_out" "setup-key" "and says exactly what to run"
+
+dry_out="$(VULTR_API_KEY=dummy-key-for-test bash "$AP" --dry-run 2>&1)"; dry_rc=$?
+assert_eq "0" "$dry_rc" "with a key it previews and exits cleanly"
+assert_contains "$dry_out" "dry run:" "preview names the underlying command"
+assert_contains "$dry_out" "--purpose chatgpt" "preview passes the purpose through"
+
+host_out="$(VULTR_API_KEY=dummy bash "$AP" --host root@203.0.113.9 --dry-run 2>&1)"
+assert_contains "$host_out" "deploy root@203.0.113.9" "an existing host skips creation"
+
+# ---------------------------------------------------------------------------
 printf '\n%s\n' "----------------------------------------"
 printf 'passed %s   failed %s   skipped %s\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

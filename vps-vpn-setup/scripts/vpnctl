@@ -636,6 +636,13 @@ sub_serve() {
   fi
   validate_port_number "$port"
 
+  # 订阅服务是 python 写的；最小化的 Debian 镜像可能没有
+  if ! have python3; then
+    log_info "python3 is required for the subscription endpoint; installing it"
+    ensure_pkgs python3
+  fi
+  have python3 || die "python3 is required for --serve but could not be installed"
+
   install_file "$LIB_DIR/sub-server.py" "$VPNCTL_LIB_DIR/sub-server.py" 0755
 
   local tmp
@@ -643,8 +650,8 @@ sub_serve() {
   {
     printf '# installed by vpnctl: subscription endpoint\n'
     printf '[Unit]\nDescription=vpnctl subscription endpoint\nAfter=network-online.target\n\n'
-    printf '[Service]\nExecStart=/usr/bin/python3 %s/sub-server.py --dir %s/files --token %s --port %s\n' \
-      "$VPNCTL_LIB_DIR" "$SUB_DIR" "$token" "$port"
+    printf '[Service]\nExecStart=%s %s/sub-server.py --dir %s/files --token %s --port %s\n' \
+      "$(command -v python3 || printf /usr/bin/python3)" "$VPNCTL_LIB_DIR" "$SUB_DIR" "$token" "$port"
     printf 'Restart=on-failure\nRestartSec=3\nDynamicUser=no\nNoNewPrivileges=true\n'
     printf 'ProtectSystem=strict\nProtectHome=true\nReadOnlyPaths=%s\n\n' "$SUB_DIR"
     printf '[Install]\nWantedBy=multi-user.target\n'

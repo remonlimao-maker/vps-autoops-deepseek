@@ -838,8 +838,21 @@ for entry in "$SCRIPTS/vpnctl" "$SCRIPTS/remote.sh" "$SCRIPTS/clientctl" "$SCRIP
 done
 
 # ---------------------------------------------------------------------------
+group "26. absolute beginner entry"
+SH="$(dirname "$SKILL_DIR")/START-HERE.md"
+if [ -r "$SH" ]; then pass "START-HERE.md shipped"; else fail "START-HERE.md shipped"; fi
+sh_body="$(cat "$SH" 2>/dev/null)"
+assert_contains "$sh_body" "路径 A" "offers a fully automated path"
+assert_contains "$sh_body" "路径 B" "offers a path for users with only a web AI"
+assert_contains "$sh_body" "Download ZIP" "explains getting the repo without git"
+assert_contains "$sh_body" "找不到终端" "covers 'where is my terminal'"
+assert_contains "$sh_body" "Watt Toolkit" "covers the GitHub access problem"
+assert_contains "$sh_body" "Vultr" "names the provider"
+assert_contains "$(cat "$(dirname "$SKILL_DIR")/README.md")" "START-HERE.md" "README points beginners at it"
+
+# ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
-group "26. documented counts"
+group "27. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 if [ "$nums" = "$expected" ]; then

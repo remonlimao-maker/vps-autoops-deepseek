@@ -267,6 +267,10 @@ cmd_show() {
   region="${line%%|*}"; line="${line#*|}"
   plan="${line%%|*}"; line="${line#*|}"
   monthly="${line%%|*}"; created="${line#*|}"
+  # the instance endpoint omits the price; fall back to the plan list
+  case $monthly in
+    ""|0) monthly="$(vultr_plans | awk -F'|' -v p="$plan" '$1==p {print $5; exit}')" ;;
+  esac
 
   if [ "$JSON_OUT" = "1" ]; then
     printf '{"name":%s,"id":%s,"status":%s,"ip":%s,"region":%s,"plan":%s,"monthly_cost":%s,"created":%s}\n' \

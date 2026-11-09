@@ -349,6 +349,25 @@ URL 本身就是密码（bearer credential）：token 32 位随机、端口随�
 
 订阅是完整 Clash 配置（含 `dns` 防泄漏块与目标站点规则），不是只列节点。订阅是凭据**：`clash.yaml` / `v2ray.txt` 里是可直接连的节点，等同于密码。不要贴群、不要提交 Git；要给别人用就单发文件。
 
+## 用户想自己定 Hysteria2 密码时
+
+默认是随机生成的。用户想用自己的（好记、和自己其他服务统一），直接传：
+
+```bash
+vpnctl client hysteria2 add --name phone --password 'Mylove2026'
+echo 'Mylove2026' | vpnctl client hysteria2 add --name phone --password-stdin   # 不想留在 shell 历史里
+```
+
+规则：
+
+- 至少 8 位
+- **不能含冒号**（hysteria2 内部用 `user:pass` 形式，有冒号会把配置截断）
+- 不能含空格
+
+已存在的客户端再传一次 `--password` 会**更新密码**并重写配置，旧客户端的连接会立刻失效——要先告诉用户。
+
+Trojan 同样支持 `--password`；SS2022 的 PSK 是固定长度的 base64，不能随便填，所以不开放。
+
 ## 用户要"能登录服务器"时
 
 用密钥创建的机器，root 通常没有可用密码——用户想用云厂商的**网页控制台**（Vultr 的
@@ -429,7 +448,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 293 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 299 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

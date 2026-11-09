@@ -290,7 +290,7 @@ be_client_add() {
   fi
   local name="$1"
   client_write hysteria2 "$name" \
-    "PASSWORD=$(rand_hex 10)" \
+    "PASSWORD=${CLIENT_PASSWORD:-$(rand_hex 10)}" \
     "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   hy_apply
   log_ok "added client $name"

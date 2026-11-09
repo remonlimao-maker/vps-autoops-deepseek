@@ -295,6 +295,7 @@ https://ipinfo.io
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | 连 GitHub 都打不开，下不了客户端 | 国内直连被阻 | 先装 Watt Toolkit 开 GitHub 加速（见第 0 步） |
+| 忘了自己设的 HS2 密码 | 密码只在服务器上 | `vpnctl client hysteria2 list` 看不到密码，用 `vpnctl client hysteria2 export --name X` 重新导出 |
 | 导入订阅报错 | 链接不完整 / 已失效 | 重新复制完整链接；确认服务器还在运行 |
 | 导入成功但没网 | 没开系统代理 / TUN | 打开开关；Windows 检查防火墙是否放行 |
 | 部分网站打不开 | 规则把该网站走了直连 | 客户端里把分组切到节点，或检查规则 |

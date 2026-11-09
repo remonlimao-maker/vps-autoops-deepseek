@@ -926,8 +926,21 @@ assert_contains "$(bash "$SCRIPTS/vpnctl" passwd --user root --generate --dry-ru
 assert_contains "$(bash "$SCRIPTS/vpnctl" passwd --dry-run 2>&1)" "非交互" "interactive password entry is refused without a tty"
 
 # ---------------------------------------------------------------------------
+group "31. user-chosen hysteria2 password"
+mine="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --password 'Mylove2026' --dry-run 2>&1)"
+assert_contains "$mine" "YOUR password (10 chars)" "a password supplied by the user is used verbatim"
+short_out="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --password 'abc' --dry-run 2>&1)"; short_rc=$?
+assert_eq "2" "$short_rc" "a password shorter than 8 chars is refused"
+assert_contains "$short_out" "至少 8 位" "and says why"
+colon_out="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --password 'a:b1234567' --dry-run 2>&1)"; colon_rc=$?
+assert_eq "2" "$colon_rc" "a colon in the password is refused"
+assert_contains "$colon_out" "冒号" "and explains the hysteria2 user:pass format"
+gen="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --dry-run 2>&1)"
+assert_contains "$gen" "generated password" "without --password it still generates one"
+
+# ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1
-group "31. documented counts"
+group "32. documented counts"
 expected=$(( PASS + 1 ))
 nums="$(grep -rhoE "[0-9]{2,3} 项(断言|测试|冒烟测试)" --include="*.md" "$SKILL_DIR" 2>/dev/null | grep -oE "^[0-9]+" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 if [ "$nums" = "$expected" ]; then

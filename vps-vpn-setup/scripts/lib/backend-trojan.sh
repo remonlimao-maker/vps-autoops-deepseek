@@ -286,7 +286,7 @@ be_install() {
 be_client_add() {
   local name="$1"
   client_write "$BE_ID" "$name" \
-    "PASSWORD=$(rand_hex 16)" \
+    "PASSWORD=${CLIENT_PASSWORD:-$(rand_hex 16)}" \
     "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   xr_apply
   log_ok "added client $name"

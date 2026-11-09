@@ -352,6 +352,17 @@ cmd_install() {
 # ---------------------------------------------------------------------------
 # client management
 # ---------------------------------------------------------------------------
+# 用户自己指定的密码：不能有冒号（hysteria2 用 user:pass 形式）、不能有空白
+validate_client_password() {
+  local pw="$1"
+  [ "${#pw}" -ge 8 ] || die "密码至少 8 位（收到 ${#pw} 位）"
+  case $pw in
+    *:*) die "密码不能包含冒号 ':'（hysteria2 用 user:pass 格式）" ;;
+    *[[:space:]]*) die "密码不能包含空格或制表符" ;;
+  esac
+  printf '%s' "$pw"
+}
+
 cmd_client() {
   need_backend "$@"
   shift || true
@@ -361,6 +372,8 @@ cmd_client() {
     case $1 in
       --name|-n) name="${2:-}"; shift 2 ;;
       --out|-o) out="${2:-}"; shift 2 ;;
+      --password|--pass|-p) CLIENT_PASSWORD="${2:-}"; shift 2 ;;
+      --password-stdin) IFS= read -r CLIENT_PASSWORD || true; shift ;;
       *) die "client: unexpected argument '$1'" ;;
     esac
   done
@@ -385,8 +398,16 @@ cmd_client() {
       done
       ;;
     add)
+      if [ -n "${CLIENT_PASSWORD:-}" ]; then
+        validate_client_password "$CLIENT_PASSWORD" >/dev/null
+      fi
       if [ "$DRY_RUN" = "1" ]; then
-        log_info "dry run: would create client '$name' on $BE_ID and write artifacts under ~/vpn-clients/$BE_ID/$name"
+        if [ -n "${CLIENT_PASSWORD:-}" ]; then
+          log_info "dry run: would create client '$name' on $BE_ID with YOUR password (${#CLIENT_PASSWORD} chars)"
+        else
+          log_info "dry run: would create client '$name' on $BE_ID with a generated password"
+        fi
+        log_info "dry run: artifacts would go to ~/vpn-clients/$BE_ID/$name"
         return 0
       fi
       need_root "client add"
@@ -395,7 +416,13 @@ cmd_client() {
   name="$(validate_client_name "$name")"
       be_installed "$BE_ID" || die "$BE_ID is not installed (run: vpnctl install $BE_ID)"
       if client_exists "$BE_ID" "$name"; then
-        log_warn "client '$name' already exists; re-rendering artifacts"
+        if [ -n "${CLIENT_PASSWORD:-}" ]; then
+          log_warn "client '$name' exists; updating its password"
+          client_write "$BE_ID" "$name" "PASSWORD=$CLIENT_PASSWORD"
+          case $BE_ID in hysteria2) hy_apply ;; trojan) tj_apply ;; esac
+        else
+          log_warn "client '$name' already exists; re-rendering artifacts"
+        fi
       else
         confirm "Create client '$name' on $BE_ID?"
         be_client_add "$name"

@@ -857,7 +857,7 @@ USERS
 # ---------------------------------------------------------------------------
 cmd_sub() {
   local name="default" outdir="" mixed_port="7890" global_mode=0 template=""
-  local serve=0 unserve=0 serve_port=""
+  local serve=0 unserve=0 serve_port="" extra_clash=""
   while [ "$#" -gt 0 ]; do
     case $1 in
       --name|-n) name="${2:-}"; shift 2 ;;
@@ -868,6 +868,7 @@ cmd_sub() {
       --serve) serve=1; shift ;;
       --unserve) unserve=1; shift ;;
       --rotate-token) TOKEN_ROTATE=1; shift ;;
+      --extra-clash) extra_clash="${2:-}"; shift 2 ;;
       --serve-port) serve_port="${2:-}"; shift 2 ;;
       -h|--help)
         cat <<'EOF'
@@ -881,6 +882,7 @@ sub options:
       --serve           also host the files at http://IP:PORT/<token>/ (bearer URL)
       --serve-port N    fixed port for --serve (default: random 20000-39999)
       --unserve         stop and remove the subscription endpoint
+      --extra-clash F   merge the proxies of another generated clash.yaml (multi-node failover)
       --rotate-token    force a new token (invalidates the old link)
 EOF
         return 0 ;;
@@ -1000,6 +1002,27 @@ EOF
         ;;
     esac
   done
+
+  # Merge nodes from another machine's profile so one blocked IP is not fatal.
+  if [ -n "$extra_clash" ]; then
+    [ -r "$extra_clash" ] || die "extra profile not readable: $extra_clash"
+    local extra_names en
+    extra_names="$(awk '
+      /^proxies:/ {p=1; next}
+      /^[^[:space:]]/ {p=0}
+      p && /^  - name:/ {
+        line=$0; sub(/^  - name: *"?/, "", line); sub(/".*/, "", line); print line
+      }' "$extra_clash")"
+    [ -n "$extra_names" ] || die "no proxies found in $extra_clash"
+    awk '
+      /^proxies:/ {p=1; next}
+      /^[^[:space:]]/ {p=0}
+      p {print}
+    ' "$extra_clash" >> "$pfile"
+    for en in $extra_names; do printf '%s\n' "$en" >> "$nfile"; done
+    count=$((count + $(printf '%s\n' "$extra_names" | wc -l | tr -d ' ')))
+    log_info "merged $(printf '%s\n' "$extra_names" | wc -l | tr -d ' ') node(s) from $extra_clash"
+  fi
 
   if [ "$count" = "0" ]; then
     die "no installed backend has a client named '$name'; create one first: vpnctl client <backend> add --name $name --yes"

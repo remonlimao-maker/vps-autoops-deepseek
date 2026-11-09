@@ -103,6 +103,51 @@ openssl x509 -in /etc/hysteria/cert.pem -noout -enddate
 
 需要告警时，把上面命令包进任意监控系统；本 Skill 不内置上报，避免引入外部依赖与隐私问题。
 
+## IP 被封锁了怎么办
+
+先判断是不是入口被封（**从你的设备测，不是从服务器上测**）：
+
+```bash
+nc -vz -w 5 <IP> 443      # 超时/拒绝，而服务器上服务正常 → 入口被封
+# 换 Wi-Fi / 4G 对比：只有一种网络不通 → 运营商级封锁
+```
+
+| 手段 | 代价 | 适用 |
+|---|---|---|
+| 销毁重建 | 5–10 分钟，订阅要更新 | IP 被 GFW 拉黑，最快恢复 |
+| Reserved IP 换绑 | 每月另收费 | 需要保住"地址身份" |
+| 域名 + DNS | 一个域名 | 换 IP 只改 DNS，订阅链接不变 |
+| **多节点订阅** | 多一台机器 | 最实用：封一个切另一个 |
+
+重建并重新交付：
+
+```bash
+cd vps-provision
+./scripts/vpsctl destroy <name> --yes
+./scripts/vpsctl go --purpose budget --region ewr --plan vc2-1c-0.5gb --client phone --yes
+```
+
+> 注意：IP 变了，旧订阅里的 IP 就失效。要么重新发链接，要么改用域名。
+
+## 多节点订阅（故障转移）
+
+把另一台机器已生成的 profile 合进来：
+
+```bash
+vpnctl sub --name phone --template /root/profile.yaml \
+  --extra-clash /root/other-machine-clash.yaml --serve
+```
+
+生成结果里两个节点都在同一个 `select` 分组，客户端里手动切换即可。
+两个节点的机器和区域最好不同，避免同一机房被整体封禁。
+
+## 降低被封的概率
+
+- 用 REALITY（TCP/443 + 真实站点伪装），不要裸 WireGuard / 无 TLS 的 SS
+- 不要让一个节点被大量设备或大流量下载共用
+- 不要公开订阅链接（等于公开 IP 和使用特征）
+- 多准备一个备用出口，被封时立刻切
+
 ## 多机部署
 
 `vpnctl` 的密钥与客户端是**单机状态**，不要跨机复制：

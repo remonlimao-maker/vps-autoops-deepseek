@@ -26,7 +26,7 @@ vpsctl go --purpose chatgpt --yes
 
 | 参数 | 未指定时 | 依据 |
 |---|---|---|
-| 区域 | `nrt` → `sgp` → `sea` → `lax` | 用途；ChatGPT 优先日本/新加坡/美国 |
+| 区域 | `nrt` → `sgp` → `sea` → `lax` | 默认优先低延迟；**ChatGPT 账号安全建议显式选美区** |
 | 套餐 | 最便宜且 RAM ≥ 1024MB（`--purpose budget` 时 ≥512MB） | 自动排除 IPv6-only 和 free 档 |
 | 系统 | 最新 Debian | 包管理稳定、用户态统一 |
 | 名称 | `<区域><序号>` | 如 `nrt1`，重名自动 +1 |
@@ -35,6 +35,10 @@ vpsctl go --purpose chatgpt --yes
 | 分流 | 中国大陆客户端 | `--cn`，REALITY/TCP 优先 |
 
 `--purpose` 可取 `chatgpt`（默认）、`streaming`、`budget`、`general`。
+
+> 默认区域为了延迟选日本；如果用户更在意 **ChatGPT 账号风控**，显式选美区：
+> `--region ewr --plan vc2-1c-0.5gb`（$3.5）或 `--region lax --plan vc2-1c-1gb`（$5）。
+> 区域只能降低风险，不能保证不封号。
 
 ### 套餐与价格（创建前必须给用户看）
 
@@ -49,6 +53,8 @@ vpsctl go --purpose chatgpt --yes
 
 - **只访问 ChatGPT 等、自己用**：推荐 **$3.5** 的 `vc2-1c-0.5gb`；
   注意它只有 `ewr`（美国新泽西）有，日本/新加坡最低是 $5。
+- **ChatGPT 账号安全**：优先美区（`ewr`/`lax`/`sjc`/`sea`）并固定 IP；
+  不要频繁换区、共享节点或多人共用一个出口；只能降低风控，**不能保证不封号**。
 - 在意延迟、要多设备/多协议：选 $5 的 `nrt`/`sgp`。
 - `go` 默认仍选 ≥1GB 的 $5 档；要 $3.5 必须显式指定：
 

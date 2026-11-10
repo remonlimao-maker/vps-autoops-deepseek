@@ -146,7 +146,7 @@ vpnctl up --all --domain vpn.example.com --acme-email you@example.com --client p
 | 角色 | 位置 | 说明 |
 |---|---|---|
 | 客户端 | 中国大陆 | 你的手机/电脑 |
-| 出口 | **境外**：日本 / 新加坡 / 美国优先，香港次之 | 香港 IP 便宜但常被 ChatGPT 判定不支持 |
+| 出口 | **境外：美国优先（ChatGPT 账号风控更低），日本 / 新加坡次之，香港不建议** | 香港 IP 便宜但常被 ChatGPT 判定不支持 |
 | 被访问方 | 境外网站 | YouTube / GitHub / ChatGPT |
 
 三条容易踩的坑：
@@ -263,7 +263,7 @@ vpnctl sub --name phone --template ~/my-clash-conf.yaml
 |---|---|---|
 | YouTube | 只要通道通就能看 | 订阅里 `youtube.com`/`googlevideo.com` 固定走代理 |
 | GitHub | 同上，只是可能慢 | 订阅里固定走代理 |
-| **ChatGPT** | **按出口 IP 的国家 + 机房信誉封禁**，配置再对也可能提示 "not available in your country" | `check-sites` 提前判定；订阅里加 DNS 防泄漏 + 域名固定走代理 |
+| **ChatGPT** | **按出口 IP 的国家 + 机房信誉封禁**，配置再对也可能提示 "not available in your country" | **美区优先 + 固定 IP**；`check-sites` 提前判定；订阅里加 DNS 防泄漏 + 域名固定走代理 |
 
 ```bash
 vpnctl check-sites          # 部署前后都该跑：这个 IP 到底能不能开 ChatGPT
@@ -272,7 +272,16 @@ vpnctl check-sites --json   # {"verdict":"ok"|"chatgpt_blocked"|"network_issue",
 
 `verdict: host_in_cn` 时先换机器——国内 VPS 无论怎么配都到不了这些站点。
 
-`verdict: chatgpt_blocked` 时**不要改配置**——换 IP 或换区域才有用（US/JP/SG 通常可用；机房 IP 被 OpenAI 标记是常态）。这时如实告诉用户，不要承诺"再调调就好"。
+`verdict: chatgpt_blocked` 时**不要改配置**——换 IP 或换区域才有用（美国优先，日本/新加坡次之；机房 IP 被 OpenAI 标记是常态）。这时如实告诉用户，不要承诺"再调调就好"。
+
+### 降低 ChatGPT 账号风控（美区优先）
+
+- 出口优先 **美区**：`ewr` / `lax` / `sjc` / `sea`；香港不建议，日本/新加坡次之。
+- **固定一个出口 IP 和节点**，不要频繁换国家、重建机器或来回切换订阅。
+- 不要共享订阅链接；不要多人共用一个出口登录多个 ChatGPT 账号。
+- 账号注册地/支付方式尽量与出口地区一致；美区账号优先美区出口。
+- 不要用这个 IP 做爬虫、批量注册、试用滥用。
+- `check-sites` 只代表网络可达，不代表账号不会被风控；以上只能降低概率，**不能保证不封号**。
 
 **自动化的边界**（不要向用户承诺做不到的事）：
 

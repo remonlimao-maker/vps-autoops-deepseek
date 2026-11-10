@@ -92,6 +92,40 @@ wg show wg0 transfer
 - 自签证书报错：客户端置 `insecure: true`，或用 `info.txt` 里的 `sha256:` 固定。
 - 速度上不去：检查 `bandwidth` 设置与宿主带宽；Brutal 拥塞控制会按设定值抢占，设太大反而伤线路。
 
+## 6.5 手机 Wi-Fi 能连但头条超时 / YouTube 不行
+
+先区分两件事：
+
+- **头条超时、国内 App 转圈**：流量被送到了海外出口。检查 `route.final` 是否
+  `direct`、`fakeip` 是否开启、`geosite-cn`/`geoip-cn` 是否真的加载。
+- **YouTube 不行、其他网页正常**：YouTube App 大量走 QUIC/UDP。如果当前只有
+  TCP 节点（例如 SS2022 TCP-only），QUIC 没有出口；如果 `final` 改成 `direct`，
+  QUIC/IP 连接会直接撞墙。
+
+确定性修法（不要继续加规则）：
+
+```bash
+# VPS 上重新生成 Hysteria2-only 手机配置 + 本地规则集
+vpnctl sub --name phone --serve
+```
+
+生成物固定为：Hysteria2-only、TUN MTU 1400、IPv4+IPv6、IPv6 reject、无 fakeip、
+`final: proxy`、头条/字节直连、`geosite-cn`/`geoip-cn` 从订阅服务本地加载。
+
+不要做的事：
+
+- 不要在同一份手机配置里同时放 SS2022 + Hysteria2 + selector + UDP 分流；
+  Wi-Fi/蜂窝下 TCP/QUIC 出口会不一致，表现为“刚才能用、现在又不行”。
+- 不要为了修头条把 `final` 改成 `direct`；YouTube 的 QUIC/IP 连接会立刻失败。
+- 不要让手机去 GitHub 拉 `geosite-cn`/`geoip-cn`；国内经常超时，规则集静默缺失。
+
+验证规则集确实来自你的 VPS：
+
+```bash
+vpnctl sub --serve    # 输出里应看到 /<token>/geosite-cn.srs 等
+curl -I http://<IP>:<端口>/<token>/geoip-cn.srs   # 200
+```
+
 ## 7. MTU / 大包
 
 现象：网页能打开但图片/视频卡住，`ping -M do -s 1400 <VPS_IP>` 失败。

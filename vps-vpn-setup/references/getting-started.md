@@ -185,34 +185,46 @@ TUN 接管和分流规则，手机上不需要手填参数。
   之类的错误就是版本旧，升级 App
 - 这份 JSON 是快照：节点密码、端口变了要重新导入，不会自动同步
 - 链接本身是凭据，不要转发给别人
-- 如果某个被墙站打不开，先确认它是否在分流名单里；白名单模式下不在名单的站点会直连，
-  需要服务端加规则后重新生成，不是手机端的问题
+- 已经内置 MTU 1400 和 IPv6 reject；不要为了“试试看”再改回 MTU 9000 或打开 fakeip
+- 如果某个被墙站打不开，先确认它是否命中 `proxy` 规则；不要把 `final` 改成
+  `direct`——那样 YouTube 的 QUIC/IP 连接会直连被墙
+- 如果头条/国内 App 超时，先看规则集是不是从你的订阅服务加载成功；GitHub 上的
+  `geosite-cn` / `geoip-cn` 在国内容易下载失败
 
 ### 这份 JSON 里有什么
 
-- `inbounds`：一条 `tun`，接管手机全部流量
-- `outbounds`：你的节点 + `direct`
-- `route.rules`：哪些域名/IP 走节点、哪些直连
-- `route.final`：没命中规则时的默认出口
-  - `final` 是节点 tag：国内直连、其余走节点
-  - `final` 是 `direct`：白名单模式，只有规则里的域名走节点，其余全部直连
+`vpnctl sub` 会优先生成一份**确定性的 Hysteria2-only 手机配置**（没有 Hysteria2
+客户端时才回落到通用多节点配置）。固定行为：
 
-**要求 sing-box 1.10+**（`tun.address` 字段的新写法）。老版本会报配置错误，升级即可。
+- `inbounds`：一条 `tun`，IPv4 + IPv6 地址，**MTU 1400**，`sniff_override_destination`
+- `outbounds`：一个 `hysteria2` + `direct`；**没有 selector，不混 SS2022**
+- `dns`：`223.5.5.5` 直连 / `8.8.8.8` 走代理，**不启用 fakeip**，`strategy: ipv4_only`
+- `route.rules`：
+  - `ip_version: 6` → `reject`（VPS 没有 IPv6 出口，避免 Wi-Fi 下绕过隧道）
+  - 头条/字节、国内 App → `direct-out`
+  - `geosite-cn` / `geoip-cn` → `direct-out`
+  - ChatGPT / YouTube / Google / GitHub / X / Telegram 等 → `proxy`
+- `route.final`：`proxy`（YouTube 的 QUIC/IP 连接必须走代理）
+- `route.rule_set`：三份 `.srs` 从**你的订阅服务**加载，不走 GitHub
 
-> 配置里**故意不写 `dns` 段**：sing-box 1.12 起 DNS 服务器格式变过，写旧格式在新版会报错，
-> 不写则使用系统解析器——国内域名照样直连，国外域名由出口节点解析，兼容 1.10 以上所有版本。
+**不要**在手机配置里再加 SS2022/选择器/UDP 分流。实测混合配置会让
+Wi-Fi 和蜂窝下的 TCP/QUIC 出口不一致，表现为 YouTube/头条时好时坏。
+公司 Wi-Fi、家庭 Wi-Fi、手机流量都用同一份 Hysteria2-only 配置。
 
 ### 想换节点 / 换规则
 
-在服务器上重新生成：
+在服务器上重新生成并发布：
 
 ```bash
-vpnctl singbox --name phone --out ~/vps-clients/singbox.json    # 指定节点名
-vpnctl singbox --name phone --global                            # 不做国内分流
+vpnctl sub --name phone --serve          # 同时生成 clash.yaml / singbox.json / 规则集
+vpnctl singbox --name phone --phone      # 只生成确定性手机 JSON（默认官方规则集）
 ```
 
-再传到手机重新导入即可。如果服务端用的是自定义白名单模板，重新生成后要用同一份模板
-重建 `singbox.json`，否则会退回默认的“国内直连、其余代理”规则。
+再导入新的 `singbox.json` 即可。`sub --serve` 会把规则集下载到 VPS 并改写成本机
+URL；如果 VPS 拉不到 GitHub，会回退到官方 URL 并给出警告——此时国内手机可能
+加载不到规则集，需要先解决 VPS 出网。
+
+**要求 sing-box 1.10+**（`tun.address` 字段的新写法）。老版本会报配置错误，升级即可。
 
 ## Android
 

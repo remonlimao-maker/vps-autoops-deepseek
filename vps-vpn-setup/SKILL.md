@@ -369,7 +369,7 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 | `vpnctl sub --unserve` | 关闭订阅链接服务 |
 | `vpnctl import hysteria2 [NAME]` | 把**手装**的 Hysteria2 纳入管理（不改服务） |
 | `vpnctl passwd [--generate] [--allow-password-login]` | 给 root 设密码（网页控制台登录需要；默认不开 SSH 密码登录） |
-| `vpnctl singbox --name N [--out F] [--global]` | 生成手机端 sing-box 用的完整 JSON（含 TUN 与国内分流） |
+| `vpnctl singbox --name N [--phone] [--out F] [--global]` | 生成手机端 sing-box JSON；`--phone` 为确定性 Hysteria2-only 配置 |
 | `vpnctl plan <be>` | 打印将要执行的动作（只读） |
 | `vpnctl install <be> [opts]` | 安装或重配后端（幂等） |
 | `vpnctl client <be> add --name N` | 新增客户端并导出 |
@@ -411,6 +411,12 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 **iPhone/Android 用 sing-box 时**：导入 `http://<IP>:<端口>/<token>/singbox.json`。
 完整的 URL 导入步骤、验证方法、版本要求（1.10+）和注意事项见
 [`references/getting-started.md`](references/getting-started.md) 的「手机端：sing-box」。
+
+> **手机端固定配置（不要再混协议）**：`vpnctl sub --name phone --serve` 会优先生成
+> **Hysteria2-only** 的 `singbox.json`：TUN MTU 1400、IPv4+IPv6、IPv6 reject、无 fakeip、
+> `final: proxy`、头条/字节直连、规则集从订阅服务本地加载。不要在同一份手机配置里加
+> SS2022 + 选择器 + UDP 分流——Wi-Fi/蜂窝下 TCP/QUIC 出口会不一致，YouTube 和头条会时好时坏。
+> 公司 Wi-Fi、家庭 Wi-Fi、手机流量都用同一份配置。
 
 如果 Agent 就运行在用户这台电脑上，可以代劳最后一步：
 
@@ -560,7 +566,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 300 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 307 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

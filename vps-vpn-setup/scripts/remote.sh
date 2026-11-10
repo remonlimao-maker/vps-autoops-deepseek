@@ -103,7 +103,7 @@ quote_args() {
 cmd_push() {
   [ -d "$SCRIPT_DIR/lib" ] || die "cannot find $SCRIPT_DIR/lib — run this from the skill bundle"
   log "packing the script bundle"
-  tar czf - -C "$BUNDLE_DIR" scripts tests \
+  tar czf - -C "$BUNDLE_DIR" scripts tests assets \
     | ssh_run "mkdir -p $REMOTE_DIR && tar xzf - -C $REMOTE_DIR && chmod +x $REMOTE_DIR/scripts/vpnctl $REMOTE_DIR/tests/acceptance.sh"
   log "bootstrapping into /usr/local (needs root on the server)"
   ssh_run "$(priv "$REMOTE_DIR/scripts/vpnctl bootstrap")"

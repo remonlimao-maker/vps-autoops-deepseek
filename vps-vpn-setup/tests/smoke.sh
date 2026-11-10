@@ -872,6 +872,70 @@ assert_contains "$(cat "$SCRIPTS/lib/sub-server.py")" "singbox.json" "the endpoi
 assert_contains "$(cat "$SUB_OUT/info.txt" 2>/dev/null)" "singbox.json" "info.txt tells phone users about it"
 
 # ---------------------------------------------------------------------------
+group "27b. deterministic phone profile"
+
+PP="$TMP/phone-profile.json"
+if python3 "$SCRIPTS/lib/phone_profile.py" \
+  --server 203.0.113.9 --port 443 --password 'test-pass' \
+  --sni www.bing.com --insecure 1 \
+  --ruleset-base '__SUB_BASE__' --out "$PP" 2>"$TMP/pp.err"; then
+  pass "phone_profile.py renders"
+else
+  fail "phone_profile.py renders" "$(cat "$TMP/pp.err")"
+fi
+
+if python3 - "$PP" <<'PYV'
+import json, sys
+d = json.load(open(sys.argv[1]))
+tags = [o["tag"] for o in d["outbounds"]]
+assert tags == ["proxy", "direct-out"], tags
+assert d["outbounds"][0]["type"] == "hysteria2"
+assert d["outbounds"][0]["up_mbps"] == 50
+assert d["outbounds"][0]["down_mbps"] == 200
+assert d["outbounds"][0]["tls"]["insecure"] is True
+assert "obfs" not in d["outbounds"][0]
+tun = d["inbounds"][0]
+assert tun["type"] == "tun" and tun["mtu"] == 1400, tun
+assert any(":" in a for a in tun["address"]), tun
+assert tun["sniff"] is True and tun["sniff_override_destination"] is True
+assert "fakeip" not in d.get("dns", {}), d.get("dns")
+assert d["dns"]["strategy"] == "ipv4_only"
+assert d["route"]["final"] == "proxy"
+rules = d["route"]["rules"]
+assert rules[0] == {"protocol": "dns", "action": "hijack-dns"}
+assert any(r.get("ip_version") == 6 and r.get("action") == "reject" for r in rules)
+assert any("toutiao" in (r.get("domain_keyword") or []) for r in rules)
+assert all(rs["url"].startswith("__SUB_BASE__/") for rs in d["route"]["rule_set"])
+assert not any(o.get("type") == "selector" for o in d["outbounds"])
+PYV
+then pass "phone profile is fixed, single-node, Wi-Fi-safe"; else fail "phone profile is fixed, single-node, Wi-Fi-safe"; fi
+
+if python3 "$SCRIPTS/lib/phone_profile.py" \
+  --server 203.0.113.9 --port 443 --password 'test-pass' \
+  --sni www.bing.com --insecure 1 \
+  --obfs-type salamander --obfs-password test-obfs > "$TMP/phone-obfs.json" 2>/dev/null \
+  && python3 - "$TMP/phone-obfs.json" <<'PYV'
+import json, sys
+o = json.load(open(sys.argv[1]))["outbounds"][0]
+assert o["obfs"] == {"type": "salamander", "password": "test-obfs"}, o
+PYV
+then pass "phone profile keeps optional Hysteria2 obfs"; else fail "phone profile keeps optional Hysteria2 obfs"; fi
+
+assert_contains "$(cat "$SUB_OUT/singbox.json" 2>/dev/null)" '"mtu": 1400' "sub writes the deterministic phone MTU"
+if python3 - "$SUB_OUT/singbox.json" <<'PYV'
+import json, sys
+out = json.load(open(sys.argv[1]))["outbounds"]
+assert len(out) == 2, out
+assert out[0]["type"] == "hysteria2", out
+assert out[1]["type"] == "direct", out
+assert not any(o.get("type") == "selector" for o in out), out
+assert not any(o.get("type") == "shadowsocks" for o in out), out
+PYV
+then pass "sub keeps the phone profile single-protocol"; else fail "sub keeps the phone profile single-protocol"; fi
+assert_contains "$(cat "$SCRIPTS/lib/sub-server.py")" "geosite-cn.srs" "endpoint allows local rule sets"
+assert_contains "$(cat "$SCRIPTS/remote.sh")" "assets" "remote bundle includes assets"
+
+# ---------------------------------------------------------------------------
 group "28. clash verge direct attach"
 CV="$TMP/cv"
 mkdir -p "$CV/profiles"

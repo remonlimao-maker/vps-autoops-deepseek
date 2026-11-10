@@ -1,0 +1,149 @@
+# Whitelist split-tunnel profile.
+# Default is DIRECT; only the domains listed below use the VPN node.
+# vpnctl sub --template will replace `proxies:` and every group's member list,
+# keeping these rules and group names intact.
+
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver: ["223.5.5.5", "119.29.29.29"]
+  # Proxied domains are resolved at the exit node; domestic names use CN DNS.
+  nameserver: ["223.5.5.5", "119.29.29.29"]
+
+proxies:
+
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    proxies:
+      - placeholder
+  - name: "🎬 流媒体"
+    type: select
+    proxies:
+      - placeholder
+  - name: "🤖 AI服务"
+    type: select
+    proxies:
+      - placeholder
+
+rules:
+  # ===== 1. Codex / ChatGPT / OpenAI =====
+  - DOMAIN-SUFFIX,chatgpt.com,🤖 AI服务
+  - DOMAIN-SUFFIX,openai.com,🤖 AI服务
+  - DOMAIN-SUFFIX,oaistatic.com,🤖 AI服务
+  - DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI服务
+  - DOMAIN-SUFFIX,chatgpt.livekit.cloud,🤖 AI服务
+  - DOMAIN-KEYWORD,openai,🤖 AI服务
+
+  # ===== 2. 其他 AI 服务 =====
+  - DOMAIN-SUFFIX,anthropic.com,🤖 AI服务
+  - DOMAIN-SUFFIX,claude.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,gemini.google.com,🤖 AI服务
+  - DOMAIN-SUFFIX,bard.google.com,🤖 AI服务
+  - DOMAIN-SUFFIX,x.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,meta.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,huggingface.co,🤖 AI服务
+  - DOMAIN-SUFFIX,perplexity.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,poe.com,🤖 AI服务
+
+  # ===== 2b. 常用 AI 工具 =====
+  - DOMAIN-SUFFIX,character.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,civitai.com,🤖 AI服务
+  - DOMAIN-SUFFIX,midjourney.com,🤖 AI服务
+  - DOMAIN-SUFFIX,suno.com,🤖 AI服务
+  - DOMAIN-SUFFIX,suno.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,elevenlabs.io,🤖 AI服务
+  - DOMAIN-SUFFIX,runwayml.com,🤖 AI服务
+  - DOMAIN-SUFFIX,sora.com,🤖 AI服务
+  - DOMAIN-SUFFIX,copilot.microsoft.com,🤖 AI服务
+  - DOMAIN-SUFFIX,sydney.bing.com,🤖 AI服务
+
+  # ===== 3. YouTube / 视频 =====
+  - DOMAIN-SUFFIX,youtube.com,🎬 流媒体
+  - DOMAIN-SUFFIX,youtu.be,🎬 流媒体
+  - DOMAIN-SUFFIX,youtube-nocookie.com,🎬 流媒体
+  - DOMAIN-SUFFIX,youtubekids.com,🎬 流媒体
+  - DOMAIN-SUFFIX,googlevideo.com,🎬 流媒体
+  - DOMAIN-SUFFIX,ytimg.com,🎬 流媒体
+  - DOMAIN-SUFFIX,ggpht.com,🎬 流媒体
+
+  # ===== 4. GitHub / 开发 =====
+  - DOMAIN-SUFFIX,github.com,🚀 节点选择
+  - DOMAIN-SUFFIX,githubusercontent.com,🚀 节点选择
+  - DOMAIN-SUFFIX,githubassets.com,🚀 节点选择
+  - DOMAIN-SUFFIX,github.io,🚀 节点选择
+  - DOMAIN-SUFFIX,github.dev,🚀 节点选择
+  - DOMAIN-SUFFIX,ghcr.io,🚀 节点选择
+  - DOMAIN-SUFFIX,githubcopilot.com,🚀 节点选择
+
+  # ===== 5. Google / X / Telegram / Meta / Wikipedia =====
+  - DOMAIN-SUFFIX,google.com,🚀 节点选择
+  - DOMAIN-SUFFIX,googleapis.com,🚀 节点选择
+  - DOMAIN-SUFFIX,gstatic.com,🚀 节点选择
+  - DOMAIN-SUFFIX,googleusercontent.com,🚀 节点选择
+  - DOMAIN-SUFFIX,x.com,🚀 节点选择
+  - DOMAIN-SUFFIX,twitter.com,🚀 节点选择
+  - DOMAIN-SUFFIX,twimg.com,🚀 节点选择
+  - DOMAIN-SUFFIX,t.co,🚀 节点选择
+  - DOMAIN-SUFFIX,telegram.org,🚀 节点选择
+  - DOMAIN-SUFFIX,t.me,🚀 节点选择
+  - DOMAIN-SUFFIX,telegram.me,🚀 节点选择
+  - DOMAIN-SUFFIX,telegra.ph,🚀 节点选择
+  - DOMAIN-SUFFIX,facebook.com,🚀 节点选择
+  - DOMAIN-SUFFIX,fbcdn.net,🚀 节点选择
+  - DOMAIN-SUFFIX,instagram.com,🚀 节点选择
+  - DOMAIN-SUFFIX,cdninstagram.com,🚀 节点选择
+  - DOMAIN-SUFFIX,whatsapp.com,🚀 节点选择
+  - DOMAIN-SUFFIX,whatsapp.net,🚀 节点选择
+  - DOMAIN-SUFFIX,wikipedia.org,🚀 节点选择
+  - DOMAIN-SUFFIX,wikimedia.org,🚀 节点选择
+
+  # ===== 5b. 社媒 / 论坛 =====
+  - DOMAIN-SUFFIX,reddit.com,🚀 节点选择
+  - DOMAIN-SUFFIX,redd.it,🚀 节点选择
+  - DOMAIN-SUFFIX,redditmedia.com,🚀 节点选择
+  - DOMAIN-SUFFIX,redditstatic.com,🚀 节点选择
+  - DOMAIN-SUFFIX,medium.com,🚀 节点选择
+  - DOMAIN-SUFFIX,quora.com,🚀 节点选择
+  - DOMAIN-SUFFIX,pinterest.com,🚀 节点选择
+  - DOMAIN-SUFFIX,pinimg.com,🚀 节点选择
+  - DOMAIN-SUFFIX,tumblr.com,🚀 节点选择
+  - DOMAIN-SUFFIX,discord.com,🚀 节点选择
+  - DOMAIN-SUFFIX,discord.gg,🚀 节点选择
+  - DOMAIN-SUFFIX,discordapp.com,🚀 节点选择
+  - DOMAIN-SUFFIX,discordapp.net,🚀 节点选择
+  - DOMAIN-SUFFIX,twitch.tv,🚀 节点选择
+  - DOMAIN-SUFFIX,ttvnw.net,🚀 节点选择
+  - DOMAIN-SUFFIX,soundcloud.com,🚀 节点选择
+  - DOMAIN-SUFFIX,sndcdn.com,🚀 节点选择
+  - DOMAIN-SUFFIX,signal.org,🚀 节点选择
+  - DOMAIN-SUFFIX,line.me,🚀 节点选择
+  - DOMAIN-SUFFIX,line-apps.com,🚀 节点选择
+
+  # ===== 5c. GFW 域名全集（内置 geosite，等价你旧配置的 gfw/proxy 规则集） =====
+  - GEOSITE,gfw,🚀 节点选择
+
+  # ===== 5d. Telegram IP 段（客户端常直连 IP，仅靠域名不够） =====
+  - IP-CIDR,91.108.4.0/22,🚀 节点选择,no-resolve
+  - IP-CIDR,91.108.8.0/22,🚀 节点选择,no-resolve
+  - IP-CIDR,91.108.12.0/22,🚀 节点选择,no-resolve
+  - IP-CIDR,91.108.16.0/22,🚀 节点选择,no-resolve
+  - IP-CIDR,91.108.20.0/22,🚀 节点选择,no-resolve
+  - IP-CIDR,91.108.56.0/22,🚀 节点选择,no-resolve
+  - IP-CIDR,149.154.160.0/20,🚀 节点选择,no-resolve
+
+  # ===== 6. 国内直连（只是显式兜一层，最终 MATCH 也是 DIRECT） =====
+  - DOMAIN-SUFFIX,cn,DIRECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+
+  # ===== 7. 其余全部直连 =====
+  - MATCH,DIRECT

@@ -1,0 +1,95 @@
+# Domestic-direct profile: mainland traffic stays direct, everything else
+# uses the exit node. No whitelist to maintain.
+# vpnctl sub --template replaces `proxies:` and each group's member list.
+
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver: ["223.5.5.5", "119.29.29.29"]
+  nameserver: ["223.5.5.5", "119.29.29.29"]
+
+proxies:
+
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    proxies:
+      - placeholder
+  - name: "🎬 流媒体"
+    type: select
+    proxies:
+      - placeholder
+  - name: "🤖 AI服务"
+    type: select
+    proxies:
+      - placeholder
+
+rules:
+  # ===== 0. 微软账号/邮箱认证直连（避免 0x80190001） =====
+  - DOMAIN-SUFFIX,login.live.com,DIRECT
+  - DOMAIN-SUFFIX,login.microsoftonline.com,DIRECT
+  - DOMAIN-SUFFIX,account.live.com,DIRECT
+  - DOMAIN-SUFFIX,acctcdn.msauth.net,DIRECT
+  - DOMAIN-SUFFIX,outlook.live.com,DIRECT
+  - DOMAIN-SUFFIX,outlook.office365.com,DIRECT
+  - DOMAIN-SUFFIX,outlook.office.com,DIRECT
+  - DOMAIN-SUFFIX,office.com,DIRECT
+  - DOMAIN-SUFFIX,office365.com,DIRECT
+  - DOMAIN-SUFFIX,msauth.net,DIRECT
+  - DOMAIN-SUFFIX,microsoftonline.com,DIRECT
+
+  # ===== 1. AI / 视频按分组走（不改最终结果，只影响手动切换） =====
+  - DOMAIN-SUFFIX,chatgpt.com,🤖 AI服务
+  - DOMAIN-SUFFIX,openai.com,🤖 AI服务
+  - DOMAIN-SUFFIX,oaistatic.com,🤖 AI服务
+  - DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI服务
+  - DOMAIN-SUFFIX,anthropic.com,🤖 AI服务
+  - DOMAIN-SUFFIX,claude.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,gemini.google.com,🤖 AI服务
+  - DOMAIN-SUFFIX,x.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,huggingface.co,🤖 AI服务
+  - DOMAIN-SUFFIX,perplexity.ai,🤖 AI服务
+  - DOMAIN-SUFFIX,youtube.com,🎬 流媒体
+  - DOMAIN-SUFFIX,youtu.be,🎬 流媒体
+  - DOMAIN-SUFFIX,googlevideo.com,🎬 流媒体
+  - DOMAIN-SUFFIX,ytimg.com,🎬 流媒体
+  - DOMAIN-SUFFIX,ggpht.com,🎬 流媒体
+
+  # ===== 2. 国内强制直连 =====
+  - DOMAIN-SUFFIX,cn,DIRECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,baidu.com,DIRECT
+  - DOMAIN-SUFFIX,qq.com,DIRECT
+  - DOMAIN-SUFFIX,tencent.com,DIRECT
+  - DOMAIN-SUFFIX,weixin.com,DIRECT
+  - DOMAIN-SUFFIX,taobao.com,DIRECT
+  - DOMAIN-SUFFIX,tmall.com,DIRECT
+  - DOMAIN-SUFFIX,alipay.com,DIRECT
+  - DOMAIN-SUFFIX,alicdn.com,DIRECT
+  - DOMAIN-SUFFIX,bilibili.com,DIRECT
+  - DOMAIN-SUFFIX,zhihu.com,DIRECT
+  - DOMAIN-SUFFIX,jd.com,DIRECT
+  - DOMAIN-SUFFIX,meituan.com,DIRECT
+  - DOMAIN-SUFFIX,douyin.com,DIRECT
+  - DOMAIN-SUFFIX,pinduoduo.com,DIRECT
+  - DOMAIN-SUFFIX,bytedance.com,DIRECT
+  - DOMAIN-SUFFIX,toutiao.com,DIRECT
+  - DOMAIN-SUFFIX,weibo.com,DIRECT
+  - DOMAIN-SUFFIX,163.com,DIRECT
+  - DOMAIN-SUFFIX,126.net,DIRECT
+  - DOMAIN-SUFFIX,xiaomi.com,DIRECT
+  - DOMAIN-SUFFIX,huawei.com,DIRECT
+  - DOMAIN-SUFFIX,aliyun.com,DIRECT
+  - DOMAIN-SUFFIX,deepseek.com,DIRECT
+
+  # ===== 3. 其余全部走代理 =====
+  - MATCH,🚀 节点选择

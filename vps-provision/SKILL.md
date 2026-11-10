@@ -36,6 +36,28 @@ vpsctl go --purpose chatgpt --yes
 
 `--purpose` 可取 `chatgpt`（默认）、`streaming`、`budget`、`general`。
 
+### 套餐与价格（创建前必须给用户看）
+
+| 套餐 | 配置 | 月费 | 可用区域 | 适合 |
+|---|---|---|---|---|
+| `vc2-1c-0.5gb` | 1 vCPU / 512MB / 10GB | **$3.5** | 仅 `ewr`（美国新泽西） | 只访问 ChatGPT / YouTube / GitHub，单用户、单协议 |
+| `vc2-1c-1gb` | 1 vCPU / 1GB / 25GB | **$5** | `nrt`/`sgp`/`lax` 等多数区域 | 多设备、多协议，或想要日本/新加坡低延迟 |
+| `vc2-1c-2gb` | 1 vCPU / 2GB / 55GB | **$10** | 多数区域 | 多人、多节点、需要更多内存 |
+
+创建前把这张表（或 `vpsctl plans --region <区域>` 的实时输出）给用户看，
+**不要只报最终选中的那一档**。
+
+- **只访问 ChatGPT 等、自己用**：推荐 **$3.5** 的 `vc2-1c-0.5gb`；
+  注意它只有 `ewr`（美国新泽西）有，日本/新加坡最低是 $5。
+- 在意延迟、要多设备/多协议：选 $5 的 `nrt`/`sgp`。
+- `go` 默认仍选 ≥1GB 的 $5 档；要 $3.5 必须显式指定：
+
+  ```bash
+  vpsctl go --purpose chatgpt --region ewr --plan vc2-1c-0.5gb
+  ```
+
+- 价格按小时计费，$3.5 是跑满一个月的估算；销毁后停止计费。
+
 ### 只有这几种情况才问用户
 
 1. 没有 `VULTR_API_KEY`：先问有没有 Vultr 账号。
@@ -108,7 +130,8 @@ vpsctl reboot jp1 / snapshot jp1 --desc before-upgrade / destroy jp1
 
 ## 安全规则
 
-1. 创建前必须让用户看到价格和区域；`--yes` 只跳过确认，不跳过展示。
+1. 创建前必须让用户看到**所有候选套餐的价格**和区域（至少 0.5GB / 1GB / 2GB 三档）；
+   `--yes` 只跳过确认，不跳过展示。
 2. **销毁不可逆**：先 `snapshot` 再 `destroy`；交互模式要求重新输入实例名。
 3. **API Key 只在环境变量**，不写文件、不回显（`doctor` 只显示前 6 位）。
 4. 只在用户指定的区域/套餐上操作；不要擅自选更贵的机型。

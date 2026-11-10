@@ -4,6 +4,9 @@
 
 支持 5 种后端（含 Trojan）、一次交付多节点 + 订阅、任意能执行 shell 的 Agent，以及纯聊天大模型。
 
+> **完全新手**：先读 [`references/first-run.md`](references/first-run.md)——从注册 Vultr、充值、
+> 建 API Key 到客户端导入，按顺序写好了，不需要懂原理。
+
 > **中国大陆用户**：出口必须是**境外** VPS（JP/SG/US 优先，HK 次之）。国内 VPS 自己都上不了 YouTube/GitHub；`vpnctl check-sites` 会检测并直接给出结论。客户端在中国大陆时用 `vpnctl up --cn`（自动选 TCP/443 的 REALITY，UDP 常被限速）。
 
 ```

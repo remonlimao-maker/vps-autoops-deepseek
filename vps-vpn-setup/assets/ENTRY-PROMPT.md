@@ -11,7 +11,7 @@
 > **`<仓库地址或本地绝对路径>`**
 >
 > 步骤：
-> 1. 读取完整目录，先读 `AGENTS.md`，再读 `vps-provision/SKILL.md` 与 `vps-vpn-setup/SKILL.md`，以及 `vps-vpn-setup/references/intake.md`。
+> 1. 读取完整目录，先读 `AGENTS.md`，再读 `vps-provision/SKILL.md` 与 `vps-vpn-setup/SKILL.md`，以及 `vps-vpn-setup/references/first-run.md`、`intake.md`。
 > 2. **先按 `vps-vpn-setup/SKILL.md` 的「第 0 步」确认前置条件**：我有没有可用的 VPS？没有的话有没有 Vultr 账号/API Key？如果连账号都没有，把 `vps-provision/references/vultr-setup.md` 的注册→充值→建 Key 步骤发给我，**等我完成后继续**；不要直接跑 autopilot，也不要代注册/代付款。
 > 3. 按 `intake.md` **一次问完**我需要的 VPS 信息，不要一条条挤牙膏；能填默认值的先填好再让我确认。
 > 4. 先帮我连好 SSH：`bash vps-vpn-setup/scripts/remote.sh connect root@<IP>`，确认密钥登录、sudo、系统版本都可用。
@@ -30,7 +30,7 @@
 
 > Set up my own VPN node automatically using this skill at **`<repo url or absolute path>`**.
 >
-> 1. Read the whole bundle: `AGENTS.md`, then `vps-provision/SKILL.md`, `vps-vpn-setup/SKILL.md` and `vps-vpn-setup/references/intake.md`.
+> 1. Read the whole bundle: `AGENTS.md`, then `vps-provision/SKILL.md`, `vps-vpn-setup/SKILL.md`, `vps-vpn-setup/references/first-run.md` and `intake.md`.
 > 2. **Start with step 0 of `vps-vpn-setup/SKILL.md`**: ask whether I already have a VPS. If not, ask whether I have a Vultr account / API key. If I have no account, send me the signup → deposit → API-key steps from `vps-provision/references/vultr-setup.md` and **wait for me to finish**; do not run autopilot, register, or pay on my behalf.
 > 3. Ask me everything you need about the VPS **in one message**, with defaults pre-filled from `intake.md`.
 > 4. Establish SSH first: `bash vps-vpn-setup/scripts/remote.sh connect root@<IP>` and confirm key auth, sudo and OS.

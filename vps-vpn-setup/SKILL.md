@@ -18,6 +18,9 @@ description: Provision, harden and operate a VPN on a Linux VPS over SSH — Wir
 
 ## 第 0 步：前置条件（第一次用先看这里）
 
+> **完全新手**：先读 [`references/first-run.md`](references/first-run.md)。
+> 里面按顺序写了“要准备什么、AI 会问什么、注册/充值/建 Key 怎么做、每一步花多久”。
+
 启动后**不要先选协议，也不要先跑 autopilot**。按这个顺序和用户对话：
 
 1. 问：「你现在有可用的 VPS 吗？」
@@ -528,6 +531,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `scripts/lib/` — 共享库与 5 个后端（新增后端只需实现同一组 `be_*` 函数，见 `references/extending.md`）
 - `references/protocol-selection.md` — 选型与网络环境判断
 - `references/agent-adapters.md` — 多 Agent / 多模型适配矩阵
+- `references/first-run.md` — **完全新手**：注册 Vultr、充值、建 API Key、客户端导入的完整剧本
 - `references/getting-started.md` — **第一次使用**：分系统安装客户端、导入订阅、验证
 - `references/client-setup.md` — 各协议对应的客户端详解
 - `references/troubleshooting.md` — 排障手册

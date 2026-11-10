@@ -4,6 +4,10 @@
 
 整个事情的目标：**让你的手机或电脑能上 ChatGPT、YouTube、GitHub。**
 
+> **完全新手，想先知道全流程？** 看
+> [`vps-vpn-setup/references/first-run.md`](vps-vpn-setup/references/first-run.md)：
+> 从注册 Vultr、充值、建 API Key 到客户端导入，按顺序写好了。
+
 ---
 
 ## 先判断你属于哪种情况
@@ -26,7 +30,7 @@
 | 一个 Vultr 账号 | 国外的云服务器商家，注册只要邮箱 | 免费注册 |
 | **Vultr API Key**（只在需要新建服务器时） | 读写权限，路径 A 会用它建机；已有 VPS 则跳过 | 免费 |
 | 支付方式 | 信用卡 / PayPal（部分地区支持支付宝） | 先充 **$10** 左右 |
-| 预算 | 服务器约 **$3.5/月**（每天约 ¥1），不用了可以销毁 | ≈ ¥25/月 |
+| 预算 | 服务器 **$3.5 起/月**（默认 1GB 档约 $5），不用了可以销毁 | ≈ ¥25–35/月 |
 
 > **已经有 VPS？** 不需要 Vultr 账号、API Key 和新机器，只要 IP + SSH 登录方式。
 > 先看 [`vps-vpn-setup/SKILL.md`](vps-vpn-setup/SKILL.md) 的「第 0 步：前置条件」，再让 AI 直接连上去装。

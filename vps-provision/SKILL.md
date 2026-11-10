@@ -61,6 +61,10 @@ bash ../vps-vpn-setup/scripts/remote.sh deploy root@<IP> --cn --client phone
 
 ## 前提
 
+**第一次用？** 如果你已经有一台 VPS，只是要在上面装 VPN，**不需要 Vultr API**；
+直接看 [`../vps-vpn-setup/SKILL.md`](../vps-vpn-setup/SKILL.md) 的「第 0 步：前置条件」。
+本 Skill 只负责云 API（创建/销毁/快照/费用），不负责主机内的 VPN 配置。
+
 | 项 | 要求 |
 |---|---|
 | 本地 | bash、curl、ssh、python3 |

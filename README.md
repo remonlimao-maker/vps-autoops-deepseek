@@ -15,6 +15,7 @@
 
 - 电脑上装了 **DeepSeek Harness**（或 Claude Code / Codex / Cursor，都行）
 - 有一个能执行命令的 AI 对话窗口
+- **新建 VPS** 才需要 Vultr API Key（读写权限）；**已有 VPS** 只要 IP + SSH，不需要 API Key
 
 ### 第 1 步：复制这段，粘进对话框
 

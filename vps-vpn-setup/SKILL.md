@@ -16,6 +16,44 @@ description: Provision, harden and operate a VPN on a Linux VPS over SSH — Wir
 - 需要：root 或免密 sudo、能出网（下载二进制）、`/dev/net/tun`（WireGuard 需要）。
 - 不做：Windows/macOS 服务端、商业机场面板代购、绕过当地法律。默认拒绝把密钥写进聊天记录或日志。
 
+## 第 0 步：前置条件（第一次用先看这里）
+
+先判断「有没有一台能 SSH 的 VPS」，这决定要不要 Vultr API：
+
+| 场景 | 需要 Vultr API？ | 必须先有 |
+|---|---|---|
+| 已有 VPS，只装/改 VPN | **不需要** | IP、SSH 端口/用户、私钥（或密码）、root 或免密 sudo、主机能出网 |
+| 没有 VPS，要新建/销毁/快照/查费用 | **需要**（Read & Write） | Vultr 账号 + API Key；本机 `bash`/`ssh`/`curl`/`python3` |
+| 只读规划、写文档、解释协议 | 不需要 | 无 |
+
+准备顺序：
+
+1. **已有机器**：直接走 `vpnctl` / `remote.sh`，不碰云 API。
+   ```bash
+   bash scripts/remote.sh -i ~/.ssh/<你的私钥> connect root@<IP>   # 先证明 SSH 可用
+   ```
+2. **没有机器**：一次性配置 Key（隐藏输入、自动校验、存 0600）：
+   ```bash
+   bash ../vps-provision/scripts/vpsctl setup-key
+   ```
+   也可以用 `export VULTR_API_KEY=...`；GUI 启动的 Agent 读不到环境变量，优先用 `setup-key`。
+3. **本机自检**：
+   ```bash
+   bash scripts/vpnctl doctor
+   bash ../vps-provision/scripts/vpsctl doctor   # 只有走云 API 时才需要
+   ```
+   需要 `bash`、`ssh`、`curl`、`python3`；缺什么先补什么。
+
+边界（必须提前确认，否则会卡住）：
+
+- VPS 在**境外**（要访问被墙站点时）；国内主机当出口没有意义。
+- 云厂商**安全组/防火墙**已放行 SSH；VPN 端口（如 443/udp）之后也要在控制台放行。
+- 改 SSH 端口前必须有**控制台/VNC** 退路；没有就先用 `--no-ssh`。
+- API Key 只用于创建/销毁等云操作；**VPN 装好后删掉 Key 不影响节点运行**。
+- 没有 shell 能力时只输出命令 + 预期输出 + 失败判据，不要假装执行。
+
+**不要**在第 0 步之前问用户“用什么协议”——先确认有没有机器、有没有 API Key，再进入第一步。
+
 ## 第一步：选协议（先决策，再动手）
 
 | 场景 | 推荐 | 理由 |
@@ -191,6 +229,9 @@ vpnctl check-sites --json   # {"verdict":"ok"|"chatgpt_blocked"|"network_issue",
 触发方式：用户显式调用 `/vps-vpn-setup`，或模型根据需求加载。加载本身**不会**执行任何命令——必须有 shell 工具且目标可达。
 
 ## 标准流程（需要分步控制时）
+
+**准备**：先按「第 0 步」确认已有机器和 SSH；没有机器先按 `vps-provision` 建机。
+下面的命令默认 SSH 密钥已配置好，否则给 `remote.sh` 加 `-i ~/.ssh/<你的私钥>`。
 
 复制脚本到 VPS 只用一种方式（在本地执行，`scripts/remote.sh` 自动打包 + bootstrap）：
 

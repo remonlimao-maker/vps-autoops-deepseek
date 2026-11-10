@@ -466,24 +466,31 @@ URL 本身就是密码（bearer credential）：token 32 位随机、端口随�
 
 订阅是完整 Clash 配置（含 `dns` 防泄漏块与目标站点规则），不是只列节点。订阅是凭据**：`clash.yaml` / `v2ray.txt` 里是可直接连的节点，等同于密码。不要贴群、不要提交 Git；要给别人用就单发文件。
 
-## 用户想自己定 Hysteria2 密码时
+## 密码：默认随机，用户可自己定
 
-默认是随机生成的。用户想用自己的（好记、和自己其他服务统一），直接传：
+**先问用户一次**（不要默认替他选弱密码）：
+
+> 节点密码使用哪种？
+> 1. **随机生成（推荐）**：20 位随机，强度最高
+> 2. **我自己定**：建议至少 16 位随机字符；不要用 `password123`、生日、手机号、姓名，也不要和公开服务共用
+
+默认是随机生成。用户要自己定时，优先用 stdin，避免留在 shell 历史：
 
 ```bash
-vpnctl client hysteria2 add --name phone --password 'Mylove2026'
-echo 'Mylove2026' | vpnctl client hysteria2 add --name phone --password-stdin   # 不想留在 shell 历史里
+vpnctl up --backend hysteria2 --client phone --password-stdin
+echo '你的强密码' | vpnctl client hysteria2 add --name phone --password-stdin
 ```
 
-规则：
+也可以直接传 `--password '...'`（会进 shell 历史，不推荐）。规则：
 
-- 至少 8 位
+- 工具最低接受 8 位；**强烈建议 16+ 位随机**
+- 少于 12 位会警告；`password123` 等常见弱密码会明确警告
 - **不能含冒号**（hysteria2 内部用 `user:pass` 形式，有冒号会把配置截断）
 - 不能含空格
 
-已存在的客户端再传一次 `--password` 会**更新密码**并重写配置，旧客户端的连接会立刻失效——要先告诉用户。
+已存在的客户端再传一次 `--password` 会**更新密码**；`up` 也会更新已存在客户端的密码。旧客户端会立刻失效，要先告诉用户。
 
-Trojan 同样支持 `--password`；SS2022 的 PSK 是固定长度的 base64，不能随便填，所以不开放。
+**共享密码的代价**：一旦把同一个密码给朋友/群，任何拿到它的人都能用你的出口；无法单独吊销某个人。能接受再共用，并优先选随机强密码。Trojan 同样支持 `--password`；SS2022 的 PSK 是固定长度 base64，不能随便填。
 
 ## 用户要"能登录服务器"时
 
@@ -566,7 +573,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 307 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 309 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

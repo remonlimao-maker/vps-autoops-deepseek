@@ -19,7 +19,7 @@ scripts/
   lib/harden.sh       防火墙 + SSH 加固 + 自动回滚
 references/           选型、多 Agent 适配、客户端、排障、加固、运维、扩展
 assets/               AGENTS.md 片段、各 Agent 的 /vpn 命令、聊天提示词
-tests/smoke.sh        无 VPS 也能跑的 307 项断言
+tests/smoke.sh        无 VPS 也能跑的 309 项断言
 tests/acceptance.sh   在 VPS 上跑完整生命周期（装→验→重装→吊销→卸）
 TESTING.md            四层实践路线：本机 → VPS → 手机
 install.sh            写入各 Agent 的发现路径
@@ -100,7 +100,7 @@ bash scripts/remote.sh pull root@203.0.113.5 ./vpn-clients
 ## 验证
 
 ```bash
-bash tests/smoke.sh                     # 本机，不需要 VPS；307 项断言
+bash tests/smoke.sh                     # 本机，不需要 VPS；309 项断言
 bash scripts/vpnctl doctor              # 目标机自检
 bash scripts/remote.sh test root@IP     # 一次性 VPS 上的完整生命周期验收
 ```

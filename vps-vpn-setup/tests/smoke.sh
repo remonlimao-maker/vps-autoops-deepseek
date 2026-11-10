@@ -1002,6 +1002,9 @@ assert_eq "2" "$colon_rc" "a colon in the password is refused"
 assert_contains "$colon_out" "冒号" "and explains the hysteria2 user:pass format"
 gen="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --dry-run 2>&1)"
 assert_contains "$gen" "generated password" "without --password it still generates one"
+weak="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --password 'password123' --dry-run 2>&1)"
+assert_contains "$weak" "常见弱密码" "weak/shared passwords are called out"
+assert_contains "$(bash "$SCRIPTS/vpnctl" up --help 2>&1)" "--password" "up offers a password choice"
 
 # ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1

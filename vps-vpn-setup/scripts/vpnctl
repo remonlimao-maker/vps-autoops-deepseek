@@ -1257,6 +1257,9 @@ EOF
   # 时才回落到通用多节点配置。订阅服务会把规则集改成本机地址。
   local sbfile="$outdir/singbox.json"
   local sb_flags=""
+  if [ "$global_mode" != "1" ] && ! be_installed hysteria2; then
+    log_warn "hysteria2 not installed: singbox.json falls back to the generic profile (no MTU 1400 / IPv6 reject); install hysteria2 for the deterministic phone profile"
+  fi
   if [ "$global_mode" = "1" ]; then
     sb_flags="--global"
   else

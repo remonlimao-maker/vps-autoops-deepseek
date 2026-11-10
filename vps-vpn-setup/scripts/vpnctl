@@ -211,8 +211,11 @@ cmd_probe() {
     if have "$b"; then foreign_bins="$foreign_bins $b"; fi
   done
   if systemd_present; then
+    # grep exits 1 when nothing matches, and pipefail turns that into a silent
+    # probe abort on a clean host — the one case it must handle. || true keeps
+    # "no foreign units" a valid answer.
     foreign_units="$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
-      | awk '{print $1}' | grep -Ei 'xray|v2ray|hysteria|wireguard|wg-quick|trojan|sing-box' | tr '\n' ' ')"
+      | awk '{print $1}' | grep -Ei 'xray|v2ray|hysteria|wireguard|wg-quick|trojan|sing-box' | tr '\n' ' ' || true)"
   fi
   for b in /etc/wireguard /usr/local/etc/xray /etc/xray /etc/hysteria /etc/ssl/hysteria /etc/trojan; do
     if [ -d "$b" ]; then foreign_dirs="$foreign_dirs $b"; fi
@@ -1003,7 +1006,11 @@ EOF
           printf '  - name: %s\n' "$(json_str "hy2-$name")"
           printf '    type: hysteria2\n'
           printf '    server: %s\n    port: %s\n' "$(json_str "$(meta_get hysteria2 PUBLIC_IP)")" "$(meta_get hysteria2 PORT)"
-          printf '    password: %s\n' "$(json_str "$(client_get hysteria2 "$name" PASSWORD)")"
+          local hy_auth; hy_auth="$(client_get hysteria2 "$name" PASSWORD)"
+          # Native installs use auth.type=userpass, so mihomo needs `user:pass`
+          # in one password field. Imported password-mode nodes must stay bare.
+          [ "$(meta_get hysteria2 AUTH_MODE)" = "password" ] || hy_auth="$name:$hy_auth"
+          printf '    password: %s\n' "$(json_str "$hy_auth")"
           printf '    sni: %s\n' "$(json_str "$(meta_get hysteria2 SNI)")"
           if [ "$(meta_get hysteria2 CERT_SOURCE)" = "acme" ] || [ "$(meta_get hysteria2 CERT_SOURCE)" = "provided" ]; then
             printf '    skip-cert-verify: false\n'

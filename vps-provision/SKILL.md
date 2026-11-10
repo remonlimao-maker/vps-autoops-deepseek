@@ -34,7 +34,11 @@ vpsctl go --purpose chatgpt --yes
 
 ### 只有这几种情况才问用户
 
-1. 没有 `VULTR_API_KEY` —— 只问这一个，别的不要问。
+1. 没有 `VULTR_API_KEY`：先问有没有 Vultr 账号。
+   - 有账号：只问 Key，别的不要问。
+   - **连账号都没有**：把 [`references/vultr-setup.md`](references/vultr-setup.md)
+     的「注册 → 充值 → 建 Key」步骤发给用户，等他完成后继续。
+     **不要代注册、不要代付款、不要借/买别人的账号或 Key。**
 2. 账号需要绑卡/验证/提高限额。
 3. 销毁实例，或在已有节点上做破坏性操作。
 4. 用户明确要求指定区域/套餐/系统。

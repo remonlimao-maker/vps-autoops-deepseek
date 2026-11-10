@@ -9,7 +9,8 @@ Agent 读完 SKILL.md 后，**一次性**问完下面这几项，不要逐条挤
 | 情况 | 需要 | 不需要 |
 |---|---|---|
 | 已有 VPS | IP、SSH 端口/用户、私钥或密码、root 或免密 sudo | Vultr API Key |
-| 没有 VPS | Vultr 账号 + API Key（Read & Write），或先在控制台开一台 | — |
+| 有 Vultr 账号，没有机器 | Vultr API Key（Read & Write），或先在控制台开一台 | — |
+| **连 Vultr 账号都没有** | 先注册 + 充值 + 建 API Key（约 10 分钟） | — |
 | 只读规划/写文档 | 无 | 机器、API Key |
 
 第一次用这个 Skill 的 Agent，**不要先问协议**；先确认机器和 API Key，再进协议选择。
@@ -22,8 +23,11 @@ Agent 读完 SKILL.md 后，**一次性**问完下面这几项，不要逐条挤
 | 私钥路径 | 否 | `~/.ssh/id_ed25519` | 已有免密 SSH 时不用给 |
 | 是否已在 `~/.ssh/config` 里配好别名 | 否 | 无 | 有别名就直接 `ssh 别名` |
 
-如果用户**还没有机器**：走 `vps-provision`，需要 Vultr API Key（Read & Write），其余全自动。
-API Key 只在建机/销毁/快照/查费用时使用；VPN 装好后删掉 Key 不影响节点运行。
+如果用户**还没有机器**：走 `vps-provision`，需要 Vultr API Key（Read & Write）。
+**连 Vultr 账号都没有**的，Agent 不能代注册/代付款：把
+[`vultr-setup.md`](../../vps-provision/references/vultr-setup.md) 的「注册 → 充值 → 建 Key」
+步骤发给用户，等他完成后继续。API Key 只在建机/销毁/快照/查费用时使用；
+VPN 装好后删掉 Key 不影响节点运行。
 
 ## B. 用途（决定协议与区域）
 

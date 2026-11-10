@@ -31,8 +31,8 @@
 > **已经有 VPS？** 不需要 Vultr 账号、API Key 和新机器，只要 IP + SSH 登录方式。
 > 先看 [`vps-vpn-setup/SKILL.md`](vps-vpn-setup/SKILL.md) 的「第 0 步：前置条件」，再让 AI 直接连上去装。
 
-> **没有 Vultr 账号？** 注册、充值、创建 API Key 的完整步骤（含截图级说明）见
-> [`vps-provision/references/vultr-setup.md`](vps-provision/references/vultr-setup.md)。
+> **连 Vultr 账号都没有？** 从注册开始：注册 → 充值（通常 $10 起）→ 创建 API Key（Read & Write），
+> 完整步骤见 [`vps-provision/references/vultr-setup.md`](vps-provision/references/vultr-setup.md)，约 10 分钟。
 
 ---
 

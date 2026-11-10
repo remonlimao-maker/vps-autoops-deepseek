@@ -23,8 +23,34 @@ description: Provision, harden and operate a VPN on a Linux VPS over SSH — Wir
 | 场景 | 需要 Vultr API？ | 必须先有 |
 |---|---|---|
 | 已有 VPS，只装/改 VPN | **不需要** | IP、SSH 端口/用户、私钥（或密码）、root 或免密 sudo、主机能出网 |
-| 没有 VPS，要新建/销毁/快照/查费用 | **需要**（Read & Write） | Vultr 账号 + API Key；本机 `bash`/`ssh`/`curl`/`python3` |
+| 有 Vultr 账号，但没有机器 | **需要**（Read & Write） | Vultr 账号 + API Key；本机 `bash`/`ssh`/`curl`/`python3` |
+| **连 Vultr 账号都没有** | **需要**（先注册/充值/建 Key） | 邮箱、支付方式、约 $10 预算；约 10 分钟 |
 | 只读规划、写文档、解释协议 | 不需要 | 无 |
+
+### 连 Vultr 账号都没有？
+
+Agent **不能**替你注册账号或付款；按下面顺序做完再回到工作流（约 10 分钟）：
+
+1. **注册**：打开 <https://www.vultr.com> → **Sign Up** → 邮箱验证
+2. **充值**：右上头像 → **Billing** → **Add Funds**，通常 **$10 起**；
+   支持信用卡 / PayPal，部分地区支付宝——以页面显示为准。**不充值不能开机**
+3. **创建 API Key**：右上头像 → **Account** → **API Keys** → **Add API Key**，
+   权限选 **Read & Write**
+4. **存到本机**：
+   ```bash
+   bash ../vps-provision/scripts/vpsctl setup-key
+   ```
+5. **验证**：`bash ../vps-provision/scripts/vpsctl doctor` 显示
+   `API key set` 和 `API call ok`
+
+完整图文步骤见
+[`vps-provision/references/vultr-setup.md`](../vps-provision/references/vultr-setup.md)。
+
+不想注册 Vultr：用任意已有 VPS 走 SSH 路径；其他云厂商的机器同样可以，只是
+`vpsctl` 目前只适配 Vultr。
+
+> 不要买/借来源不明的账号或 API Key，也不要让 Agent 代填支付信息。
+> 计费按小时；$3.5/月档跑一天约 $0.12，销毁后停止计费。
 
 准备顺序：
 
@@ -32,10 +58,12 @@ description: Provision, harden and operate a VPN on a Linux VPS over SSH — Wir
    ```bash
    bash scripts/remote.sh -i ~/.ssh/<你的私钥> connect root@<IP>   # 先证明 SSH 可用
    ```
-2. **没有机器**：一次性配置 Key（隐藏输入、自动校验、存 0600）：
-   ```bash
-   bash ../vps-provision/scripts/vpsctl setup-key
-   ```
+2. **没有机器**：先确认有没有 Vultr 账号。
+   - 有账号：一次性配置 Key（隐藏输入、自动校验、存 0600）：
+     ```bash
+     bash ../vps-provision/scripts/vpsctl setup-key
+     ```
+   - 连账号都没有：先按上面的「连 Vultr 账号都没有？」注册、充值、建 Key。
    也可以用 `export VULTR_API_KEY=...`；GUI 启动的 Agent 读不到环境变量，优先用 `setup-key`。
 3. **本机自检**：
    ```bash

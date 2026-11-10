@@ -18,6 +18,16 @@ description: Provision, harden and operate a VPN on a Linux VPS over SSH — Wir
 
 ## 第 0 步：前置条件（第一次用先看这里）
 
+启动后**不要先选协议，也不要先跑 autopilot**。按这个顺序和用户对话：
+
+1. 问：「你现在有可用的 VPS 吗？」
+2. 有 → 要 IP / SSH 端口 / 用户 / 私钥或密码，先 `remote.sh connect` 验证，再进第一步。
+3. 没有 → 问：「有 Vultr 账号吗？」
+   - 有账号、没 Key → 发建 Key 步骤，让用户 `vpsctl setup-key`，`vpsctl doctor` 通过后继续。
+   - **连账号都没有** → 发「注册 → 充值 → 建 Key」步骤（约 10 分钟），然后**停下等待**。
+     用户回「好了」或 `vpsctl doctor` 通过之前，不要跑 `vpsctl go` / `autopilot.sh`，也不要假装已建机。
+4. 只有前置条件齐了，才进入「第一步：选协议」。
+
 先判断「有没有一台能 SSH 的 VPS」，这决定要不要 Vultr API：
 
 | 场景 | 需要 Vultr API？ | 必须先有 |
@@ -156,6 +166,9 @@ vpnctl sub --name phone --template /root/conf.yaml --serve
 完整步骤、安全保证和常见坑见 `references/adopt-existing.md`。
 
 ## 全自动工作流（优先）
+
+> 第一次用、或还没有 VPS / API Key：先完成「第 0 步」。
+> 没有 Key 时 `autopilot.sh` 会在建机阶段失败；连 Vultr 账号都没有时，先带用户注册，不要直接跑。
 
 `scripts/autopilot.sh` 把下面所有步骤串成一条命令，Agent 优先调它：
 

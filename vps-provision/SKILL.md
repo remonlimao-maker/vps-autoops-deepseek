@@ -13,6 +13,10 @@ description: Set up a working VPS from one sentence — resolve region/plan/imag
 vpsctl go --purpose chatgpt --yes
 ```
 
+> **例外**：用户没有 API Key，尤其是**连 Vultr 账号都没有**时，不要直接跑 `go`。
+> 先按 [`../vps-vpn-setup/SKILL.md`](../vps-vpn-setup/SKILL.md) 的「第 0 步」确认账号，
+> 引导注册/充值/建 Key，等 `vpsctl doctor` 显示 `API call ok` 后再执行。
+
 **准备只需一次**：`vpsctl setup-key` 粘贴 API Key（隐藏输入、自动校验）。
 之后每次都是一句话。
 

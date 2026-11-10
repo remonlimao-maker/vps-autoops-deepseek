@@ -12,11 +12,12 @@
 >
 > 步骤：
 > 1. 读取完整目录，先读 `AGENTS.md`，再读 `vps-provision/SKILL.md` 与 `vps-vpn-setup/SKILL.md`，以及 `vps-vpn-setup/references/intake.md`。
-> 2. 按 `intake.md` **一次问完**我需要的 VPS 信息，不要一条条挤牙膏；能填默认值的先填好再让我确认。
-> 3. 先帮我连好 SSH：`bash vps-vpn-setup/scripts/remote.sh connect root@<IP>`，确认密钥登录、sudo、系统版本都可用。
-> 4. 跑**只读**检查：`probe`、`plan`、`check-sites`，把「将要改什么、风险是什么、怎么回滚」列给我，**等我授权**。
-> 5. 拿到授权后连续执行完整部署与验证，不要每一步都来问我；失败就按 `references/troubleshooting.md` 处理。
-> 6. 最后交付：订阅链接（或文件路径）+ **按我的系统给出客户端安装和导入步骤**（Mac/Windows/Linux/手机）+ 验证方法 + 一条回滚命令。
+> 2. **先按 `vps-vpn-setup/SKILL.md` 的「第 0 步」确认前置条件**：我有没有可用的 VPS？没有的话有没有 Vultr 账号/API Key？如果连账号都没有，把 `vps-provision/references/vultr-setup.md` 的注册→充值→建 Key 步骤发给我，**等我完成后继续**；不要直接跑 autopilot，也不要代注册/代付款。
+> 3. 按 `intake.md` **一次问完**我需要的 VPS 信息，不要一条条挤牙膏；能填默认值的先填好再让我确认。
+> 4. 先帮我连好 SSH：`bash vps-vpn-setup/scripts/remote.sh connect root@<IP>`，确认密钥登录、sudo、系统版本都可用。
+> 5. 跑**只读**检查：`probe`、`plan`、`check-sites`，把「将要改什么、风险是什么、怎么回滚」列给我，**等我授权**。
+> 6. 拿到授权后连续执行完整部署与验证，不要每一步都来问我；失败就按 `references/troubleshooting.md` 处理。
+> 7. 最后交付：订阅链接（或文件路径）+ **按我的系统给出客户端安装和导入步骤**（Mac/Windows/Linux/手机）+ 验证方法 + 一条回滚命令。
 >
 > 约束：
 > - 不要让我手动敲命令，你直接执行。
@@ -30,11 +31,12 @@
 > Set up my own VPN node automatically using this skill at **`<repo url or absolute path>`**.
 >
 > 1. Read the whole bundle: `AGENTS.md`, then `vps-provision/SKILL.md`, `vps-vpn-setup/SKILL.md` and `vps-vpn-setup/references/intake.md`.
-> 2. Ask me everything you need about the VPS **in one message**, with defaults pre-filled from `intake.md`.
-> 3. Establish SSH first: `bash vps-vpn-setup/scripts/remote.sh connect root@<IP>` and confirm key auth, sudo and OS.
-> 4. Run the read-only checks (`probe`, `plan`, `check-sites`), then show me exactly what will change, the risks and the rollback, and **wait for my authorization**.
-> 5. After authorization, execute the full deployment and verification without asking at every step; use `references/troubleshooting.md` if something fails.
-> 6. Deliver: the subscription link (or file path), **client install + import steps for my OS** (macOS/Windows/Linux/mobile), how to verify, and one rollback command.
+> 2. **Start with step 0 of `vps-vpn-setup/SKILL.md`**: ask whether I already have a VPS. If not, ask whether I have a Vultr account / API key. If I have no account, send me the signup → deposit → API-key steps from `vps-provision/references/vultr-setup.md` and **wait for me to finish**; do not run autopilot, register, or pay on my behalf.
+> 3. Ask me everything you need about the VPS **in one message**, with defaults pre-filled from `intake.md`.
+> 4. Establish SSH first: `bash vps-vpn-setup/scripts/remote.sh connect root@<IP>` and confirm key auth, sudo and OS.
+> 5. Run the read-only checks (`probe`, `plan`, `check-sites`), then show me exactly what will change, the risks and the rollback, and **wait for my authorization**.
+> 6. After authorization, execute the full deployment and verification without asking at every step; use `references/troubleshooting.md` if something fails.
+> 7. Deliver: the subscription link (or file path), **client install + import steps for my OS** (macOS/Windows/Linux/mobile), how to verify, and one rollback command.
 >
 > Rules: do not make me type commands; never print private keys, passwords or subscription bodies; no destructive action (destroy, SSH port change) without my explicit approval.
 
@@ -42,7 +44,7 @@
 
 ## 没有 VPS 的情况
 
-把第 2 步换成：
+把第 3–4 步换成：
 
 > 我还没有服务器。请用 `vps-provision` 帮我建一台：需要我的 Vultr API Key（Read & Write），先跑
 > `vpsctl setup-key` 让我粘贴，然后用 `vpsctl go --purpose chatgpt --region <区域> --yes` 一条命令完成。

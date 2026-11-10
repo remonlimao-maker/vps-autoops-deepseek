@@ -933,6 +933,7 @@ assert not any(o.get("type") == "shadowsocks" for o in out), out
 PYV
 then pass "sub keeps the phone profile single-protocol"; else fail "sub keeps the phone profile single-protocol"; fi
 assert_contains "$(cat "$SCRIPTS/lib/sub-server.py")" "geosite-cn.srs" "endpoint allows local rule sets"
+assert_contains "$(cat "$SCRIPTS/vpnctl")" 'dest/sub-server.py' "bootstrap refreshes the running endpoint"
 assert_contains "$(cat "$SCRIPTS/remote.sh")" "assets" "remote bundle includes assets"
 
 # ---------------------------------------------------------------------------

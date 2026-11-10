@@ -415,8 +415,7 @@ cmd_client() {
       fi
       need_root "client add"
       [ -n "$name" ] || die "client add requires --name NAME"
-      if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
-  name="$(validate_client_name "$name")"
+      name="$(validate_client_name "$name")"
       be_installed "$BE_ID" || die "$BE_ID is not installed (run: vpnctl install $BE_ID)"
       if client_exists "$BE_ID" "$name"; then
         if [ -n "${CLIENT_PASSWORD:-}" ]; then
@@ -439,8 +438,7 @@ cmd_client() {
       fi
       need_root "client remove"
       [ -n "$name" ] || die "client remove requires --name NAME"
-      if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
-  name="$(validate_client_name "$name")"
+      name="$(validate_client_name "$name")"
       client_exists "$BE_ID" "$name" || die "no such client: $name"
       confirm "Revoke client '$name'? Existing configs will stop working."
       be_client_remove "$name"
@@ -448,8 +446,7 @@ cmd_client() {
       ;;
     export)
       [ -n "$name" ] || die "client export requires --name NAME"
-      if [ "$unserve" = "1" ]; then sub_unserve; return 0; fi
-  name="$(validate_client_name "$name")"
+      name="$(validate_client_name "$name")"
       client_exists "$BE_ID" "$name" || die "no such client: $name"
       be_client_export "$name" "$out"
       ;;

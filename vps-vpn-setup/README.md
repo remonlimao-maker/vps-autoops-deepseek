@@ -7,7 +7,7 @@
 > **完全新手**：先读 [`references/first-run.md`](references/first-run.md)——从注册 Vultr、充值、
 > 建 API Key 到客户端导入，按顺序写好了，不需要懂原理。
 
-> **中国大陆用户**：出口必须是**境外** VPS（JP/SG/US 优先，HK 次之）。国内 VPS 自己都上不了 YouTube/GitHub；`vpnctl check-sites` 会检测并直接给出结论。客户端在中国大陆时用 `vpnctl up --cn`（自动选 TCP/443 的 REALITY，UDP 常被限速）。
+> **中国大陆用户**：出口必须是**境外** VPS（JP/SG/US 优先，HK 次之）。国内 VPS 自己都上不了 YouTube/GitHub；`vpnctl check-sites` 会检测并直接给出结论。客户端在中国大陆时用 `vpnctl up --cn`（默认 Hysteria2；确认 UDP 被封再显式加 `--backend xray-reality`）。
 
 ```
 SKILL.md              入口：决策树 + 安全规则 + 标准流程（Agent 读这个）
@@ -19,7 +19,7 @@ scripts/
   lib/harden.sh       防火墙 + SSH 加固 + 自动回滚
 references/           选型、多 Agent 适配、客户端、排障、加固、运维、扩展
 assets/               AGENTS.md 片段、各 Agent 的 /vpn 命令、聊天提示词
-tests/smoke.sh        无 VPS 也能跑的 310 项断言
+tests/smoke.sh        无 VPS 也能跑的 311 项断言
 tests/acceptance.sh   在 VPS 上跑完整生命周期（装→验→重装→吊销→卸）
 TESTING.md            四层实践路线：本机 → VPS → 手机
 install.sh            写入各 Agent 的发现路径
@@ -100,7 +100,7 @@ bash scripts/remote.sh pull root@203.0.113.5 ./vpn-clients
 ## 验证
 
 ```bash
-bash tests/smoke.sh                     # 本机，不需要 VPS；310 项断言
+bash tests/smoke.sh                     # 本机，不需要 VPS；311 项断言
 bash scripts/vpnctl doctor              # 目标机自检
 bash scripts/remote.sh test root@IP     # 一次性 VPS 上的完整生命周期验收
 ```

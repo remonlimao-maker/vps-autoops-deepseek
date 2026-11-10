@@ -2,6 +2,9 @@
 
 选型的唯一标准是「在当前网络环境下能连上且够快」，不是协议新旧。先测量，再决定。
 
+**默认优先 Hysteria2**：手机、家庭 Wi-Fi、公司 Wi-Fi、国内客户端已实测通过，手机端还有
+确定性 profile。只有确认 UDP 被封/不稳定时，才切到 TCP 的 REALITY/SS2022。
+
 ## 1. 先确认三条网络事实
 
 在 VPS 上执行（`vpnctl probe --json` 已覆盖大部分）：
@@ -27,8 +30,9 @@ ping -c 20 <VPS_IP>
 
 | 约束 / 场景 | 选择 | 说明 |
 |---|---|---|
-| UDP 可用，追求吞吐与延迟 | WireGuard | 内核态，无用户态转发开销 |
-| UDP 可用但线路丢包 >1% | Hysteria2 | QUIC + Brutal/BBR，主动对抗丢包 |
+| **默认：手机 / 家庭 Wi-Fi / 国内客户端** | **Hysteria2** | QUIC + BBR；手机确定性 profile 已固化 |
+| UDP 可用且追求最低开销 | WireGuard | 内核态，无用户态转发开销；显式选择 |
+| 线路丢包 >1% | Hysteria2 | 主动对抗丢包 |
 | 只有 TCP 放行 | Xray VLESS+REALITY | 直接吃 TCP/443 |
 | 需要伪装成正常网站流量 | Xray VLESS+REALITY | TLS1.3 指纹与真实站点一致，无需证书 |
 | 客户端老旧、只认 SS | Shadowsocks-2022 | 2022 方法需较新客户端；老客户端用 aes-256-gcm（不推荐） |

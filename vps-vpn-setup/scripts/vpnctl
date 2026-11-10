@@ -80,7 +80,7 @@ MAINTENANCE
   version | help
 
 BACKENDS
-  wireguard      WireGuard (UDP, kernel-space, fastest; best default)
+  wireguard      WireGuard (UDP, kernel-space; explicit choice for clean UDP links)
   xray-reality   Xray VLESS + REALITY (TCP/443, TLS camouflage, censorship-resistant)
   ss2022         Shadowsocks-2022 via Xray (simple, wide client support)
   hysteria2      Hysteria2 (QUIC/UDP, best on lossy or high-latency links)
@@ -1426,30 +1426,17 @@ cmd_up() {
     return 0
   fi
 
-  # --- choose a backend from what the host can actually do -----------------
-  if [ "$UP_BACKEND" = "auto" ] && [ "$UP_CN" = "1" ]; then
-    # Clients on mainland networks get UDP throttled or blocked often enough
-    # that a TCP/443 camouflage node is the better first choice.
-    UP_BACKEND="xray-reality"
-    log_info "--cn: choosing REALITY on TCP/443 (UDP is unreliable from mainland networks)"
-  elif [ "$UP_BACKEND" = "auto" ]; then
-    local virt tun wgok
-    virt="$(virt_kind)"
-    tun="$(json_bool test -c /dev/net/tun)"
-    wgok="$(json_bool sh -c 'modprobe -n wireguard >/dev/null 2>&1 || test -d /sys/module/wireguard')"
-    case $virt in
-      lxc|lxd|openvz|docker) UP_BACKEND="xray-reality" ;;
-      *)
-        if [ "$tun" = "true" ] && [ "$wgok" = "true" ]; then
-          UP_BACKEND="wireguard"
-        elif port_listening 443 tcp; then
-          UP_BACKEND="hysteria2"
-        else
-          UP_BACKEND="xray-reality"
-        fi
-        ;;
-    esac
-    log_info "auto-selected backend: $UP_BACKEND (virt=$virt tun=$tun wg=${wgok})"
+  # --- choose a backend ----------------------------------------------------
+  # Hysteria2 is the verified default for phone/home-Wi-Fi/China use. It does
+  # not need TUN and has the deterministic phone profile. Keep WireGuard,
+  # REALITY, SS2022 and Trojan as explicit `--backend` choices/fallbacks.
+  if [ "$UP_BACKEND" = "auto" ]; then
+    UP_BACKEND="hysteria2"
+    if [ "$UP_CN" = "1" ]; then
+      log_info "--cn: choosing Hysteria2 (UDP/443; verified default for mainland clients)"
+    else
+      log_info "auto-selected backend: hysteria2 (default; override with --backend NAME)"
+    fi
   fi
 
   case $UP_BACKEND in
@@ -1583,14 +1570,15 @@ up options (one-shot deployment):
   --self-signed        use a self-signed cert for Trojan instead of ACME
   --password PW        Hysteria2 client password; omit to generate a strong random one
   --password-stdin     read the Hysteria2 password from stdin (avoids shell history)
-  --cn                 clients are in mainland China: prefer REALITY on TCP/443 (UDP is often throttled)
+  --cn                 clients are in mainland China: prefer Hysteria2 (verified default; UDP/443)
   --no-check           skip the chatgpt/youtube/github reachability check at the end
   --ssh-harden         also harden sshd (default: firewall only)
   --no-client          provision only, do not create a client
   --dry-run            print the full plan and exit
 
-auto selection: WireGuard when TUN + kernel module exist; REALITY when the host
-is a container or UDP is unusable; Hysteria2 when TCP/443 is taken.
+auto selection: Hysteria2 first (verified default for phone/home Wi-Fi/China).
+Use --backend wireguard|xray-reality|ss2022 if UDP is blocked or you specifically
+need a TCP protocol.
 EOF
 }
 

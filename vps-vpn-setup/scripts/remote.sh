@@ -23,7 +23,7 @@
 #   -b, --backend  backend for deploy (default auto)
 #   -c, --client   client name for deploy (default default)
 #   --domain D     domain for the trojan node when deploying --backend all
-#   --cn           clients are in mainland China: prefer REALITY on TCP/443
+#   --cn           clients are in mainland China: prefer Hysteria2 (UDP/443)
 
 set -euo pipefail
 

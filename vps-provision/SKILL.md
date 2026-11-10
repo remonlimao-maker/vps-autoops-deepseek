@@ -20,7 +20,7 @@ vpsctl go --purpose chatgpt --yes
 **准备只需一次**：`vpsctl setup-key` 粘贴 API Key（隐藏输入、自动校验）。
 之后每次都是一句话。
 
-这一条命令做完：查可用区域 → 按用途选区域 → 选最便宜且 ≥1GB 的套餐 → 选最新 Debian → 建机 → 等 SSH → 部署 VPN（大陆客户端优先 REALITY）→ 套用用户自己的 Clash 模板 → 拉回客户端配置。
+这一条命令做完：查可用区域 → 按用途选区域 → 选最便宜且 ≥1GB 的套餐 → 选最新 Debian → 建机 → 等 SSH → 部署 VPN（默认优先 Hysteria2）→ 套用用户自己的 Clash 模板 → 拉回客户端配置。
 
 ### 自动推断规则
 
@@ -32,7 +32,7 @@ vpsctl go --purpose chatgpt --yes
 | 名称 | `<区域><序号>` | 如 `nrt1`，重名自动 +1 |
 | 客户端 | `phone` | |
 | 模板 | auto：`./conf.yaml` → `~/Limao/conf.yaml` → `~/.config/vpsctl/template.yaml` | 找到就用用户的策略 |
-| 分流 | 中国大陆客户端 | `--cn`，REALITY/TCP 优先 |
+| 分流 | 中国大陆客户端 | `--cn`，Hysteria2 优先（UDP 不可用时再显式换 TCP） |
 
 `--purpose` 可取 `chatgpt`（默认）、`streaming`、`budget`、`general`。
 

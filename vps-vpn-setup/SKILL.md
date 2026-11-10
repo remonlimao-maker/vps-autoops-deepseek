@@ -108,19 +108,22 @@ Agent **不能**替你注册账号或付款；按下面顺序做完再回到工�
 
 **不要**在第 0 步之前问用户“用什么协议”——先确认有没有机器、有没有 API Key，再进入第一步。
 
-## 第一步：选协议（先决策，再动手）
+## 第一步：选协议（默认优先 Hysteria2）
+
+**默认且优先用 `hysteria2`**：手机、家庭 Wi-Fi、公司 Wi-Fi、国内客户端都已实测通过；
+手机端还有确定性 profile（MTU 1400、IPv6 reject、本地规则集）。其他协议作为显式备用。
 
 | 场景 | 推荐 | 理由 |
 |---|---|---|
-| 自用/团队全隧道，追求速度与省电 | `wireguard` | 内核态 UDP，握手小、移动端省电；需 UDP 可用 |
-| 需要抗封锁、可伪装成正常 TLS 网站 | `xray-reality` | VLESS+Vision+REALITY，TCP/443，无需域名与证书 |
+| **手机 / 家庭 Wi-Fi / 国内客户端（默认）** | **`hysteria2`** | QUIC+BBR，弱网吞吐好；手机确定性配置已固化 |
+| 需要抗封锁、UDP 被封、只能走 TCP | `xray-reality` | VLESS+Vision+REALITY，TCP/443，无需域名与证书 |
 | 客户端老旧/需要最简单兼容 | `ss2022` | Shadowsocks-2022（经 Xray 承载），客户端支持面最广 |
-| 弱网、丢包、跨境高延迟、移动网络 | `hysteria2` | QUIC+BBR，丢包环境下吞吐明显更好 |
-| UDP 被封 | `xray-reality` 或 `ss2022` | 均为 TCP |
+| 干净 UDP、追求最低开销 | `wireguard` | 内核态 UDP；需 TUN 与内核模块 |
 | 需要标准 TLS 节点、可配自己的域名/证书 | `trojan` | 真 TLS，客户端兼容好；需要域名 |
 | 内网互联、零信任组网 | 不在本 Skill 范围 | 用 Tailscale/Headscale，见 `references/protocol-selection.md` |
 
-拿不准时：先 `wireguard`；若宿主是 OpenVZ/LXC 或 UDP 被限，选 `xray-reality`。
+拿不准时：默认 `hysteria2`。只有确认 UDP 被封/不稳定时，才显式选 `xray-reality`
+或 `ss2022`（TCP）；不要反过来把 Hysteria2 当成“弱网才用”的备选。
 
 **要多节点就一次装齐**（三者同机、端口错开：REALITY 443/tcp、Hysteria2 443/udp、Trojan 8443/tcp）：
 
@@ -153,13 +156,14 @@ vpnctl up --all --domain vpn.example.com --acme-email you@example.com --client p
 
 1. **`check-sites` 要在 VPS 上跑**，不是在你电脑上。本机跑必然全红（它测的是"这台机器→目标"这一段）。
 2. **本机不需要能访问 GitHub**：Skill 和脚本都在你本地，`remote.sh` 只用 SSH 连 VPS。
-3. **UDP 经常被限速/阻断**：中国大陆到境外的 WireGuard、Hysteria2 稳定性不如 TCP。所以加了 `--cn`：
+3. **UDP 是否可用要实测**：默认优先 Hysteria2；如果公司/校园网确实封 UDP，再显式切 TCP：
 
 ```bash
-vpnctl up --cn --client phone --yes                      # VPS 上
-bash scripts/remote.sh deploy root@IP --cn --client phone  # 笔记本上
+vpnctl up --backend hysteria2 --client phone --yes       # 默认，推荐
+vpnctl up --cn --client phone --yes                      # 同上，Hysteria2
+vpnctl up --backend xray-reality --client phone --yes    # 仅 UDP 不可用时
 ```
-`--cn` 只是把默认后端从 WireGuard 改成 REALITY，其余流程不变。
+`--cn` 不再切 REALITY；它只是标记“大陆客户端”，默认仍是 Hysteria2。
 
 判断一台机器能不能用，一条命令：
 
@@ -238,10 +242,9 @@ vpnctl up --dry-run                                  # 只看计划
 
 | 条件 | 选择 |
 |---|---|
-| 有 `/dev/net/tun` 且内核模块可用 | `wireguard` |
-| 容器（lxc/openvz/docker）或无 TUN | `xray-reality` |
-| TCP/443 已被占用 | `hysteria2` |
-| 其它 | `xray-reality` |
+| **默认（未显式指定）** | **`hysteria2`** |
+| 明确要 TCP / UDP 被封 | 显式 `--backend xray-reality` 或 `ss2022` |
+| 明确要内核态最低开销 | 显式 `--backend wireguard` |
 
 `up` 默认只开防火墙、不动 sshd；需要一并加固 SSH 时加 `--ssh-harden`。失败即停，不会带着半成品继续。非交互执行必须带 `--yes`。
 
@@ -573,7 +576,7 @@ bash <skill_dir>/install.sh --target dsh|claude|codex|cursor|gemini|copilot|agen
 - `references/security-hardening.md` — 加固与合规要点
 - `references/operations.md` — 运维：监控、轮换、迁移、限流
 - `references/adopt-existing.md` — 接管已有机器/已有节点（不重装）
-- `tests/smoke.sh` — 本机 310 项断言（无需 VPS）
+- `tests/smoke.sh` — 本机 311 项断言（无需 VPS）
 - `tests/acceptance.sh` — 在 VPS 上跑完整生命周期验收
 - `TESTING.md` — 四层实践路线（本机 → 一次性 VPS → 手机真机）
 - `assets/` — 可粘贴的提示词与各 Agent 的命令模板

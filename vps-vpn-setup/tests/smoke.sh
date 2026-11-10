@@ -528,8 +528,8 @@ cn_text="$(PATH="$TMP/fakebin:$PATH" FAKE_COUNTRY=CN bash "$SCRIPTS/vpnctl" chec
 assert_contains "$cn_text" "cannot be your exit node" "the message says why, not just 'failed'"
 
 cn_up="$(PATH="$TMP/fakebin:$PATH" VPNCTL_STATE_DIR="$TMP/cn-state" bash "$SCRIPTS/vpnctl" up --cn --dry-run 2>&1)"
-assert_contains "$cn_up" "--cn: choosing REALITY" "up --cn prefers the TCP backend"
-assert_contains "$cn_up" "Plan: xray-reality" "up --cn plans REALITY"
+assert_contains "$cn_up" "--cn: choosing Hysteria2" "up --cn prefers Hysteria2"
+assert_contains "$cn_up" "Plan: Hysteria2" "up --cn plans Hysteria2"
 if [ -d "$TMP/cn-state" ]; then fail "up --cn --dry-run created no state"; else pass "up --cn --dry-run created no state"; fi
 
 # ---------------------------------------------------------------------------
@@ -1006,6 +1006,7 @@ assert_contains "$gen" "generated password" "without --password it still generat
 weak="$(VPNCTL_STATE_DIR="$SUB_STATE" bash "$SCRIPTS/vpnctl" client hysteria2 add --name p1 --password 'password123' --dry-run 2>&1)"
 assert_contains "$weak" "常见弱密码" "weak/shared passwords are called out"
 assert_contains "$(bash "$SCRIPTS/vpnctl" up --help 2>&1)" "--password" "up offers a password choice"
+assert_contains "$(bash "$SCRIPTS/vpnctl" up --help 2>&1)" "Hysteria2 first" "up defaults to Hysteria2"
 
 # ---------------------------------------------------------------------------
 # 必须放在最后：这个断言自身也要计入总数，所以期望值是 PASS+1

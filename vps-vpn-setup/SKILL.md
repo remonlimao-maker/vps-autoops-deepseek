@@ -298,8 +298,12 @@ bash scripts/vpnctl bootstrap        # 可选：安装为 /usr/local/bin/vpnctl
 1. 订阅链接（或 `clash.yaml` 文件路径）
 2. 用户系统对应的客户端：Windows/macOS/Linux → **Clash Verge Rev**；iPhone → Shadowrocket / sing-box；Android → Clash Meta for Android
 3. 导入步骤：客户端里「订阅 → 从 URL 导入 → 粘贴」；如果给的是本地文件，说明「从文件导入」和 yaml 的四块结构（`proxies` / `proxy-groups` / `rule-providers` / `rules`）
-4. 验证方法：浏览器打开 `https://ipinfo.io`，出口是服务器所在地即成功
+4. 验证方法：打开 YouTube / ChatGPT 能加载；再打开一个国内站点确认直连正常。`ipinfo.io` 只作参考——默认“国内直连、其余代理”配置会显示服务器 IP，白名单配置会显示国内 IP，都属正常
 5. 关闭方法：关掉系统代理/TUN 开关
+
+**iPhone/Android 用 sing-box 时**：导入 `http://<IP>:<端口>/<token>/singbox.json`。
+完整的 URL 导入步骤、验证方法、版本要求（1.10+）和注意事项见
+[`references/getting-started.md`](references/getting-started.md) 的「手机端：sing-box」。
 
 如果 Agent 就运行在用户这台电脑上，可以代劳最后一步：
 

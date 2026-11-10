@@ -143,42 +143,57 @@ mihomo -d . -f config.yaml
 
 ## 手机端：sing-box（推荐，免费）
 
-sing-box 是开源客户端，iOS/Android 都有。本项目会**直接生成好一份 `singbox.json`**，
-里面已经包含节点、TUN 接管、国内直连规则，不用手填任何参数。
+sing-box 是开源客户端，iOS/Android 都有。服务端会生成一份 `singbox.json`，里面包含节点、
+TUN 接管和分流规则，手机上不需要手填参数。
 
-### 先拿到配置文件
+### 先拿到配置
 
 两种方式任选：
 
-1. **文件**：服务器上的 `~/vpn-clients/_subscriptions/<名字>/singbox.json`，用 AirDrop / 微信文件传输 / 数据线传到手机
-2. **链接**（订阅服务开启时）：`http://<IP>:<端口>/<token>/singbox.json`，在 App 里粘贴导入
+1. **链接**（订阅服务开启时）：`http://<IP>:<端口>/<token>/singbox.json`，App 里直接粘贴导入（推荐）
+2. **文件**：服务器上的 `~/vpn-clients/_subscriptions/<名字>/singbox.json`，用 AirDrop / 微信文件传输 / 数据线传到手机
 
 ### iOS
 
-1. App Store 搜索 **sing-box**（免费）安装
-2. 打开 → **配置 / Profiles** → 右上 **+** → **从文件导入**，选传进来的 `singbox.json`
-   （或选 **从 URL 导入**，粘贴订阅链接）
-3. 点该配置 → 启用
-4. 回到首页，打开开关 → 系统会请求添加 VPN 配置，点 **允许**
-5. 浏览器打开 `https://ipinfo.io` 验证出口
+1. App Store 安装或更新 **sing-box**（免费）
+2. 打开 → 底部 **配置 / Profiles** → 右上 **+**
+3. 选 **从 URL 导入 / Import from URL**，粘贴链接 → 保存
+   （没有 URL 导入时，选 **从文件导入**，选传进来的 `singbox.json`）
+4. 点一下新配置，选中它
+5. 回首页打开开关 → 系统请求添加 VPN 配置 → **允许** → Face ID / 密码确认
 
 ### Android
 
-1. 装 **sing-box for Android**（GitHub 或应用商店）
-2. 同样「配置 → 新建 → 从文件/URL 导入」
-3. 授权 VPN、启动
+1. 安装或更新 **sing-box for Android**
+2. **配置 / Profiles** → **+** → **从 URL 导入**
+3. 粘贴链接 → 保存 → 选中 → 启动
+4. 系统弹出 VPN 授权 → **允许**
+
+### 验证
+
+- 打开 **YouTube** 或 **ChatGPT**：能正常加载，说明代理路径 OK
+- 打开 **百度**：能正常访问，说明国内直连 OK
+- `ipinfo.io` 只作参考：**默认“国内直连、其余代理”配置会显示服务器 IP；
+  白名单配置会显示国内 IP，这是正常的**，不要只凭它判断失败
+
+### 注意
+
+- 手机上同时只能开一个 VPN；Shadowrocket、其他 sing-box 配置先关掉/删除，避免冲突
+- 要求 **sing-box 1.10+**，建议用最新版；导入报 `tun.address`、`auto_detect_route`
+  之类的错误就是版本旧，升级 App
+- 这份 JSON 是快照：节点密码、端口变了要重新导入，不会自动同步
+- 链接本身是凭据，不要转发给别人
+- 如果某个被墙站打不开，先确认它是否在分流名单里；白名单模式下不在名单的站点会直连，
+  需要服务端加规则后重新生成，不是手机端的问题
 
 ### 这份 JSON 里有什么
 
-```json
-{
-  "inbounds":  [{"type": "tun", "auto_route": true}],        // 接管全部流量
-  "outbounds": [{"type": "vless", "tag": "reality-phone"},  // 你的节点（可能多个）
-                {"type": "direct", "tag": "direct"}],
-  "route":     {"rules": [{"domain_suffix": ["deepseek.com", ...], "outbound": "direct"}],
-                "final": "reality-phone"}                   // 国内直连，其余走节点
-}
-```
+- `inbounds`：一条 `tun`，接管手机全部流量
+- `outbounds`：你的节点 + `direct`
+- `route.rules`：哪些域名/IP 走节点、哪些直连
+- `route.final`：没命中规则时的默认出口
+  - `final` 是节点 tag：国内直连、其余走节点
+  - `final` 是 `direct`：白名单模式，只有规则里的域名走节点，其余全部直连
 
 **要求 sing-box 1.10+**（`tun.address` 字段的新写法）。老版本会报配置错误，升级即可。
 
@@ -194,7 +209,8 @@ vpnctl singbox --name phone --out ~/vps-clients/singbox.json    # 指定节点�
 vpnctl singbox --name phone --global                            # 不做国内分流
 ```
 
-再传到手机重新导入即可。
+再传到手机重新导入即可。如果服务端用的是自定义白名单模板，重新生成后要用同一份模板
+重建 `singbox.json`，否则会退回默认的“国内直连、其余代理”规则。
 
 ## Android
 

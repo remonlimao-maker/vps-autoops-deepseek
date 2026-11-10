@@ -1528,8 +1528,11 @@ EOF
           "$(json_str "$(client_get "$BE_ID" "$name" PSK):$(meta_get "$BE_ID" SS_SERVER_PSK)")")"
         ;;
       hysteria2)
-        local tls ins obfs="" srvtls
+        local tls ins obfs="" srvtls hy_auth
         ins="$(meta_get "$BE_ID" INSECURE)"; [ -n "$ins" ] || ins=1
+        hy_auth="$(client_get "$BE_ID" "$name" PASSWORD)"
+        # Native installs use auth.type=userpass; sing-box wants `user:pass`.
+        [ "$(meta_get "$BE_ID" AUTH_MODE)" = "password" ] || hy_auth="$name:$hy_auth"
         srvtls="$(printf '"tls":{"enabled":true,"server_name":%s,"insecure":%s}' \
           "$(json_str "$(meta_get "$BE_ID" SNI)")" "$([ "$ins" = "1" ] && printf true || printf false)")"
         if [ "$(meta_get "$BE_ID" OBFS_ENABLED)" = "1" ]; then
@@ -1538,7 +1541,7 @@ EOF
         fi
         f="$(printf '{"type":"hysteria2","tag":%s,"server":%s,"server_port":%s,"password":%s,%s%s}' \
           "$(json_str "hy2-$name")" "$(json_str "$(meta_get "$BE_ID" PUBLIC_IP)")" "$(meta_get "$BE_ID" PORT)" \
-          "$(json_str "$(client_get "$BE_ID" "$name" PASSWORD)")" "$srvtls" "$obfs")"
+          "$(json_str "$hy_auth")" "$srvtls" "$obfs")"
         ;;
       trojan)
         local ins2 skip=""
@@ -1562,10 +1565,12 @@ EOF
   local cn_json; cn_json="$(cn_suffix_json "$cnlist")"
 
   local route_rules
+  # sniff first: TUN sees IP packets, and domain rules only match after SNI
+  # sniffing restores the destination domain.
   if [ "$global" = "1" ] || [ "$cn_json" = "[]" ]; then
-    route_rules='{"ip_is_private":true,"outbound":"direct"}'
+    route_rules='{"action":"sniff"},{"ip_is_private":true,"outbound":"direct"}'
   else
-    route_rules="$(printf '{"domain_suffix":%s,"outbound":"direct"},{"ip_is_private":true,"outbound":"direct"}' "$cn_json")"
+    route_rules="$(printf '{"action":"sniff"},{"domain_suffix":%s,"outbound":"direct"},{"ip_is_private":true,"outbound":"direct"}' "$cn_json")"
   fi
 
   local json
@@ -1589,7 +1594,6 @@ EOF
   "route": {
     "rules": [%s],
     "final": %s,
-    "auto_detect_route": false,
     "auto_detect_interface": true
   }
 }' "$outbounds" "$route_rules" "$(json_str "$first_tag")")"

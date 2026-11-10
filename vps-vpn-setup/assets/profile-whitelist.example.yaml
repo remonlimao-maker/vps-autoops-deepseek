@@ -131,7 +131,19 @@ rules:
   # ===== 5c. GFW 域名全集（内置 geosite，等价你旧配置的 gfw/proxy 规则集） =====
   - GEOSITE,gfw,🚀 节点选择
 
-  # ===== 5d. Telegram IP 段（客户端常直连 IP，仅靠域名不够） =====
+  # ===== 5d. IP 查询站（专门用于验证出口，数量刻意很小） =====
+  - DOMAIN-SUFFIX,ipinfo.io,🚀 节点选择
+  - DOMAIN-SUFFIX,ip.sb,🚀 节点选择
+  - DOMAIN-SUFFIX,ipapi.co,🚀 节点选择
+  - DOMAIN-SUFFIX,ipify.org,🚀 节点选择
+  - DOMAIN-SUFFIX,ifconfig.me,🚀 节点选择
+  - DOMAIN-SUFFIX,icanhazip.com,🚀 节点选择
+  - DOMAIN-SUFFIX,whatismyipaddress.com,🚀 节点选择
+  - DOMAIN-SUFFIX,whatismyip.com,🚀 节点选择
+  - DOMAIN-SUFFIX,myip.com,🚀 节点选择
+  - DOMAIN-SUFFIX,checkip.amazonaws.com,🚀 节点选择
+
+  # ===== 5e. Telegram IP 段（客户端常直连 IP，仅靠域名不够） =====
   - IP-CIDR,91.108.4.0/22,🚀 节点选择,no-resolve
   - IP-CIDR,91.108.8.0/22,🚀 节点选择,no-resolve
   - IP-CIDR,91.108.12.0/22,🚀 节点选择,no-resolve

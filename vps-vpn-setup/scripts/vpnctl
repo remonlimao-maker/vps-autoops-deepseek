@@ -569,6 +569,10 @@ cmd_bootstrap() {
       run systemctl restart vpnctl-sub || true
     fi
   fi
+  # The bundle is tarred on macOS and may carry UID 501. Normalize ownership
+  # and readability so a non-root `vpnctl singbox` can still read its helpers.
+  run chown -R root:root "$dest"
+  run chmod -R a+rX "$dest"
   run chmod 755 "$dest/vpnctl"
   run ln -sf "$dest/vpnctl" "$VPNCTL_BIN_PATH"
   log_ok "installed: $VPNCTL_BIN_PATH"
